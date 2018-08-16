@@ -1,0 +1,22 @@
+# OS files
+Thumbs.db
+.DS_Store
+.nyc_output
+
+# IDE files
+.idea
+
+# Logs
+logs
+log
+*.log
+
+node_modules
+npm-debug.log
+/.DS_Store
+
+test/testasync.zip
+test/testcallback.zip
+
+coverage
+.coveralls.yml

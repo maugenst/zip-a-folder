@@ -1,0 +1,39 @@
+{
+  "name": "asynczipfolder",
+  "version": "0.0.1",
+  "description": "Forked the idea of @sole to zip a complete folder into a zip file but now using promises",
+  "main": "lib/asyncZipFolder.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "jest --coverage && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maugenst/asyncZipFolder.git"
+  },
+  "keywords": [
+    "zip",
+    "folder",
+    "async",
+    "promise"
+  ],
+  "author": "Marius Augenstein",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/maugenst/asyncZipFolder/issues"
+  },
+  "homepage": "https://github.com/maugenst/asyncZipFolder#readme",
+  "devDependencies": {
+    "coveralls": "^3.0.2",
+    "eslint-plugin-jest": "^21.21.0",
+    "jest": "^23.5.0",
+    "lodash": "^4.17.10",
+    "prettier": "^1.14.2"
+  },
+  "dependencies": {
+    "archiver": "^2.1.1"
+  }
+}
