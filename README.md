@@ -8,8 +8,9 @@
 
 # asyncZipFolder
 Inspired by ``zip-folder`` to just zip a folder plain into a zip file I
-recreated this project since zip-folder was very outdated and seemed not to be maintained anymore. Also 
-I added support for modern ES6 language features like promises/async/await.
+recreated this project since zip-folder was very outdated and seemed not 
+to be maintained anymore. Also I added support for modern ES6 language 
+features like promises/async/await.
 
 ## Basic Usage
 
