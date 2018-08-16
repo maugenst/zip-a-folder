@@ -1,4 +1,4 @@
-[![NPM](https://nodei.co/npm/asyncZipFolder.png)](https://nodei.co/npm/asyncZipFolder/)
+[![NPM](https://nodei.co/npm/asynczipfolder.png)](https://nodei.co/npm/asynczipfolder/)
 
 [![Build](https://travis-ci.org/maugenst/asyncZipFolder.svg?branch=master)](https://travis-ci.org/maugenst/asyncZipFolder.svg?branch=master)
 [![Coverage Status](https://coveralls.io/repos/github/maugenst/asyncZipFolder/badge.svg?branch=master)](https://coveralls.io/github/maugenst/asyncZipFolder?branch=master)
@@ -6,8 +6,8 @@
 [![Known Vulnerabilities](https://snyk.io/test/github/maugenst/asyncZipFolder/badge.svg?targetFile=package.json)](https://snyk.io/test/github/maugenst/asyncZipFolder?targetFile=package.json)
 
 
-# asyncZipFolder
-Inspired by ``zip-folder`` to just zip a folder plain into a zip file I
+# asynczipfolder
+Inspired by ``zip-folder`` to just zip a complete folder plain into a zip file I
 recreated this project since zip-folder was very outdated and seemed not 
 to be maintained anymore. Also I added support for modern ES6 language 
 features like promises/async/await.
@@ -17,13 +17,13 @@ features like promises/async/await.
 Install via npm
 
 ```
-npm install asyncZipFolder
+npm install asynczipfolder
 ```
 
 ### Promised Usage
 
 ```
-const asyncZipFolder = require('asyncZipFolder');
+const asyncZipFolder = require('asynczipfolder');
 
 class ZipAFolder {
 
@@ -39,7 +39,7 @@ ZipAFolder.main();
 ### Callback Usage
 
 ```
-const zipFolder = require('asyncZipFolder');
+const zipFolder = require('asynczipfolder');
 
 class ZipAFolder {
 
