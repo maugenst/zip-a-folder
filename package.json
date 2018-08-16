@@ -1,5 +1,5 @@
 {
-  "name": "asynczipfolder",
+  "name": "asyncZipFolder",
   "version": "0.0.1",
   "description": "Forked the idea of @sole to zip a complete folder into a zip file but now using promises",
   "main": "lib/asyncZipFolder.js",
