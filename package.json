@@ -1,6 +1,6 @@
 {
   "name": "zip-a-folder",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Forked the idea of @sole to zip a complete folder into a zip file but now using promises",
   "main": "lib/zip-a-folder.js",
   "directories": {
@@ -28,12 +28,12 @@
   "homepage": "https://github.com/maugenst/zip-a-folder#readme",
   "devDependencies": {
     "coveralls": "^3.0.2",
-    "eslint-plugin-jest": "^21.21.0",
-    "jest": "^23.5.0",
-    "lodash": "^4.17.10",
-    "prettier": "^1.14.2"
+    "eslint-plugin-jest": "^21.22.1",
+    "jest": "^23.6.0",
+    "lodash": "^4.17.11",
+    "prettier": "^1.14.3"
   },
   "dependencies": {
-    "archiver": "^2.1.1"
+    "archiver": "^3.0.0"
   }
 }
