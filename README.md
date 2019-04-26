@@ -23,12 +23,12 @@ npm install zip-a-folder
 ### Promised Usage
 
 ```
-const zip-a-folder = require('zip-a-folder');
+const { zip } = require('zip-a-folder');
 
 class ZipAFolder {
 
     static async main() {
-        await zip-a-folder.zip('/path/to/the/folder', '/path/to/archive.zip');
+        await zip('/path/to/the/folder', '/path/to/archive.zip');
     }
 }
 
