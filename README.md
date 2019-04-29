@@ -64,3 +64,4 @@ Tests are written under ``test`` and run by jest. To run the tests call ``npm te
 
 * Special thanks to @sole for her initial work.
 * Thanks to YOONBYEONGIN
+* Thanks to ratbeard
