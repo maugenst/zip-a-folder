@@ -22,7 +22,7 @@ npm install zip-a-folder
 
 ### Promised Usage
 
-```
+```js
 const { zip } = require('zip-a-folder');
 
 class ZipAFolder {
@@ -33,12 +33,11 @@ class ZipAFolder {
 }
 
 ZipAFolder.main();
-
 ```
 
 ### Callback Usage
 
-```
+```js
 const zipFolder = require('zip-a-folder');
 
 class ZipAFolder {
@@ -53,7 +52,6 @@ class ZipAFolder {
 }
 
 ZipAFolder.main();
-
 ```
 
 ### Tests
