@@ -1,11 +1,5 @@
 [![NPM](https://nodei.co/npm/zip-a-folder.png)](https://nodei.co/npm/zip-a-folder/)
 
-[![Build](https://travis-ci.org/maugenst/zip-a-folder.svg?branch=master)](https://travis-ci.org/maugenst/zip-a-folder.svg?branch=master)
-[![Coverage Status](https://coveralls.io/repos/github/maugenst/zip-a-folder/badge.svg?branch=master)](https://coveralls.io/github/maugenst/zip-a-folder?branch=master)
-[![Dependencies](https://david-dm.org/maugenst/zip-a-folder.svg)](https://david-dm.org/maugenst/zip-a-folder)
-[![Known Vulnerabilities](https://snyk.io/test/github/maugenst/zip-a-folder/badge.svg?targetFile=package.json)](https://snyk.io/test/github/maugenst/zip-a-folder?targetFile=package.json)
-
-
 # zip-a-folder
 Inspired by ``zip-folder`` to just zip a complete folder plain into a zip file I
 recreated this project since zip-folder was very outdated and seemed not 
