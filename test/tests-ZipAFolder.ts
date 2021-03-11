@@ -1,14 +1,14 @@
 'use strict';
+import 'jest-extended';
+import * as fs from 'fs';
+import * as path from 'path';
+import {ZipAFolder as zipafolder, zip, zipFolder} from '../lib/ZipAFolder';
 
-const fs = require('fs');
-const path = require('path');
-const zipafolder = require('../lib/zip-a-folder');
-
-describe('Zip-A-Folder Test', function() {
-    let testasync = path.resolve(__dirname, 'testasync.zip');
-    let testasyncSameDirectory = path.resolve(__dirname, 'data/testasync.zip');
-    let testcallback = path.resolve(__dirname, 'testcallback.zip');
-    let testnotexisting = path.resolve(__dirname, '/notexisting/testcallback.zip');
+describe('Zip-A-Folder Test', function () {
+    const testasync = path.resolve(__dirname, 'testasync.zip');
+    const testasyncSameDirectory = path.resolve(__dirname, 'data/testasync.zip');
+    const testcallback = path.resolve(__dirname, 'testcallback.zip');
+    const testnotexisting = path.resolve(__dirname, '/notexisting/testcallback.zip');
 
     beforeAll(() => {
         if (fs.existsSync(testasync)) {
@@ -36,6 +36,13 @@ describe('Zip-A-Folder Test', function() {
         expect(fs.existsSync(testasync)).toBe(true);
     });
 
+    it('ASYNC: Zip test folder direct via constant', async () => {
+        expect.assertions(1);
+        await zip(path.resolve(__dirname, 'data/'), testasync);
+
+        expect(fs.existsSync(testasync)).toBe(true);
+    });
+
     it('ASYNC: Zip test folder failing', async () => {
         expect.assertions(1);
         try {
@@ -57,6 +64,12 @@ describe('Zip-A-Folder Test', function() {
 
     it('CALLBACK: Zip test folder', () => {
         zipafolder.zipFolder(path.resolve(__dirname, 'data/'), testcallback, () => {
+            expect(fs.existsSync(testcallback)).toBe(true);
+        });
+    });
+
+    it('CALLBACK: Zip test folder direct via constant', () => {
+        zipFolder(path.resolve(__dirname, 'data/'), testcallback, () => {
             expect(fs.existsSync(testcallback)).toBe(true);
         });
     });

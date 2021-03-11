@@ -1,0 +1,19 @@
+{
+    "globals": {
+        "ts-jest": {
+            "diagnostics": false,
+            "tsConfig": "tsconfig.json"
+        }
+    },
+    "testEnvironment": "node",
+    "setupFilesAfterEnv": ["jest-extended"],
+    "testRegex": "test/tests-.+\\.ts",
+    "testPathIgnorePatterns": ["/.+tests-.+\\.d\\.ts"],
+    "transform": {
+        "^.+\\.(ts|tsx)$": "ts-jest"
+    },
+    "rootDir": "./",
+    "forceExit": true,
+    "silent": true,
+    "testTimeout": 3000000
+}

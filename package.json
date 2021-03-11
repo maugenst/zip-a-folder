@@ -1,15 +1,18 @@
 {
   "name": "zip-a-folder",
-  "version": "0.0.13",
+  "version": "0.1.0",
   "description": "Forked the idea of @sole to zip a complete folder into a zip file but now using promises",
-  "main": "lib/zip-a-folder.js",
-  "typings": "zip-a-folder.d.ts",
+  "main": "dist/lib/ZipAFolder.js",
+  "typings": "dist/lib/ZipAFolder.d.ts",
   "directories": {
     "lib": "lib",
     "test": "test"
   },
   "scripts": {
-    "test": "jest --coverage && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js"
+    "test": "./node_modules/jest/bin/jest.js --coverage && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js",
+    "build": "tsc",
+    "clean": "rimraf dist/",
+    "lint": "eslint . --ext .ts"
   },
   "repository": {
     "type": "git",
@@ -29,13 +32,30 @@
   "homepage": "https://github.com/maugenst/zip-a-folder#readme",
   "devDependencies": {
     "@babel/plugin-transform-typescript": "^7.11.0",
+    "@typescript-eslint/eslint-plugin": "^4.17.0",
+    "@typescript-eslint/parser": "^4.17.0",
     "coveralls": "^3.1.0",
+    "eslint": "^7.21.0",
+    "eslint-config-airbnb-base": "^14.2.1",
+    "eslint-config-prettier": "^8.1.0",
+    "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-jest": "^23.20.0",
+    "eslint-plugin-prefer-arrow": "^1.2.3",
+    "eslint-plugin-prettier": "^3.3.1",
     "jest": "^25.5.4",
     "lodash": "^4.17.20",
-    "prettier": "^2.1.1"
+    "prettier": "^2.2.1",
+    "rimraf": "^3.0.2"
   },
   "dependencies": {
-    "archiver": "^5.0.0"
+    "@types/archiver": "^5.1.0",
+    "@types/jest": "^26.0.20",
+    "@types/node": "^14.14.33",
+    "archiver": "^5.0.0",
+    "jest-extended": "^0.11.5",
+    "ts-jest": "^26.5.3",
+    "tslint": "^6.1.3",
+    "tslint-plugin-prettier": "^2.3.0",
+    "typescript": "^4.2.3"
   }
 }

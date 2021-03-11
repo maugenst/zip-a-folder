@@ -9,8 +9,9 @@
 # zip-a-folder
 Inspired by ``zip-folder`` to just zip a complete folder plain into a zip file I
 recreated this project since zip-folder was very outdated and seemed not 
-to be maintained anymore. Also I added support for modern ES6 language 
+to be maintained anymore. Also added support for modern ES6 language 
 features like promises/async/await.
+In version 0.1.0 zip-a-folder got rewritten in Typescript.
 
 ## Basic Usage
 
@@ -23,7 +24,7 @@ npm install zip-a-folder
 ### Promised Usage
 
 ```js
-const { zip } = require('zip-a-folder');
+import { zip } from 'zip-a-folder';
 
 class ZipAFolder {
 
@@ -38,12 +39,12 @@ ZipAFolder.main();
 ### Callback Usage
 
 ```js
-const zipFolder = require('zip-a-folder');
+import { zipFolder } from 'zip-a-folder';
 
 class ZipAFolder {
 
     static main() {
-        zipFolder.zipFolder('/path/to/the/folder', '/path/to/archive.zip', function(err) {
+        zipFolder('/path/to/the/folder', '/path/to/archive.zip', (err) => {
             if(err) {
                 console.log('Something went wrong!', err);
             }
@@ -62,4 +63,5 @@ Tests are written under ``test`` and run by jest. To run the tests call ``npm te
 
 * Special thanks to @sole for her initial work.
 * Thanks to YOONBYEONGIN
+* Thanks to Wunschik
 * Thanks to ratbeard
