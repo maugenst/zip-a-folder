@@ -15,8 +15,9 @@ node_modules
 npm-debug.log
 /.DS_Store
 
-test/testasync.zip
-test/testcallback.zip
+test/*.zip
+test/*.tgz
+test/*.tar
 
 coverage
 .coveralls.yml

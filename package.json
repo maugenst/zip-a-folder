@@ -1,6 +1,6 @@
 {
   "name": "zip-a-folder",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Forked the idea of @sole to zip a complete folder into a zip file but now using promises",
   "main": "dist/lib/ZipAFolder.js",
   "typings": "dist/lib/ZipAFolder.d.ts",

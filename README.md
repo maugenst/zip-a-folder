@@ -1,11 +1,14 @@
 [![NPM](https://nodei.co/npm/zip-a-folder.png)](https://nodei.co/npm/zip-a-folder/)
 
 # zip-a-folder
-Inspired by ``zip-folder`` to just zip a complete folder plain into a zip file I
-recreated this project since zip-folder was very outdated and seemed not 
-to be maintained anymore. Also added support for modern ES6 language 
-features like promises/async/await.
-In version 0.1.0 zip-a-folder got rewritten in Typescript.
+Easy to use zip (or tar) a complete folder plain into a zip file 
+including compression ratio handling.
+
+Version 1.0+ is incompatible to elder versions since it introduces a
+breaking API change. 
+* Callback function is NOT supported anymore. 
+* Provide the possibility to create tar archives. 
+* Set compression ratio (three levels supported by now uncompressed, medium and high)
 
 ## Basic Usage
 
@@ -15,43 +18,57 @@ Install via npm
 npm install zip-a-folder
 ```
 
-### Promised Usage
+### Creating a ZIP file
 
 ```js
 import { zip } from 'zip-a-folder';
 
-class ZipAFolder {
+class TestMe {
 
     static async main() {
         await zip('/path/to/the/folder', '/path/to/archive.zip');
     }
 }
 
-ZipAFolder.main();
+TestMe.main();
 ```
 
-### Callback Usage
+### Creating a gzipped TAR file
 
 ```js
-import { zipFolder } from 'zip-a-folder';
+import { tar } from 'zip-a-folder';
 
-class ZipAFolder {
+class TestMe {
 
-    static main() {
-        zipFolder('/path/to/the/folder', '/path/to/archive.zip', (err) => {
-            if(err) {
-                console.log('Something went wrong!', err);
-            }
-        });
+    static async main() {
+        await tar('/path/to/the/folder', '/path/to/archive.tgz');
     }
 }
 
-ZipAFolder.main();
+TestMe.main();
+```
+
+### Compression handling
+
+For the sake of easy use, supported compression levels are (by now):
+`COMPRESSION_LEVEL.high`, `COMPRESSION_LEVEL.medium` or `COMPRESSION_LEVEL.uncompressed`. 
+
+```js
+import { zip, COMPRESSION_LEVEL } from 'zip-a-folder';
+
+class TestMe {
+
+    static async main() {
+        await zip('/path/to/the/folder', '/path/to/archive.zip', COMPRESSION_LEVEL.high);
+    }
+}
+
+TestMe.main();
 ```
 
 ### Tests
 
-Tests are written under ``test`` and run by jest. To run the tests call ``npm test``.
+Tests can be found in `/test` and run by jest. To run the tests call ``npm test``.
 
 ## Thanks
 
