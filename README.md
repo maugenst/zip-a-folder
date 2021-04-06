@@ -76,3 +76,4 @@ Tests can be found in `/test` and run by jest. To run the tests call ``npm test`
 * Thanks to YOONBYEONGIN
 * Thanks to Wunschik
 * Thanks to ratbeard
+* Thanks to Xotabu4 

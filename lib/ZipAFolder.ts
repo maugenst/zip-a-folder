@@ -17,7 +17,7 @@ export class ZipAFolder {
         } else {
             await ZipAFolder.compress(srcFolder, zipFilePath, 'tar', {
                 gzip: true,
-                gzipOptions: {level: compression || COMPRESSION_LEVEL.medium},
+                gzipOptions: {level: compression},
             });
         }
     }
@@ -29,7 +29,7 @@ export class ZipAFolder {
             });
         } else {
             await ZipAFolder.compress(srcFolder, zipFilePath, 'zip', {
-                zlib: {level: compression || COMPRESSION_LEVEL.medium},
+                zlib: {level: compression},
             });
         }
     }
@@ -46,8 +46,8 @@ export class ZipAFolder {
             throw new Error('Source and target folder must be different.');
         }
         try {
-            await fs.promises.access(srcFolder, fs.constants.R_OK | fs.constants.W_OK);
-            await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK);
+            await fs.promises.access(srcFolder, fs.constants.R_OK | fs.constants.W_OK); //eslint-disable-line no-bitwise
+            await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK); //eslint-disable-line no-bitwise
         } catch (e) {
             throw new Error(`Permission error: ${e.message}`);
         }
@@ -57,9 +57,7 @@ export class ZipAFolder {
 
         return new Promise((resolve, reject) => {
             output.on('close', resolve);
-            output.on('error', (err) => {
-                reject(err);
-            });
+            output.on('error', reject);
 
             zipArchive.pipe(output);
             zipArchive.directory(srcFolder, false);
