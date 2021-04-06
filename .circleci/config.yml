@@ -1,7 +1,7 @@
 version: 2.1
 orbs:
   node: circleci/node@4.2.1
-  coveralls: coveralls/coveralls@x.y.z
+  coveralls: coveralls/coveralls@1.0.6
 jobs:
   buildAndTest:
     # Reuse Docker container specification given by the node Orb
