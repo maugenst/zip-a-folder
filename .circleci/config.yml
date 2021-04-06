@@ -1,20 +1,15 @@
 version: 2.1
 orbs:
-  node: circleci/node@3.0.0
+  node: circleci/node
 jobs:
   buildAndTest:
     # Reuse Docker container specification given by the node Orb
     executor: node/default
     steps:
       - checkout
-      # Install the latest npm - the node Orb takes care of it
-      - node/install-npm
-      - run:
-          name: Build
-          command: 'npm run build'
-      - run:
-          name: Test
-          command: npm test
+      - node/install-packages
+      - run: npm run build
+      - run: npm test
       - store_artifacts:
           path: test-results.xml
           destination: deliverable.xml
