@@ -1,6 +1,7 @@
 [![NPM](https://nodei.co/npm/zip-a-folder.png)](https://nodei.co/npm/zip-a-folder/)
 
-[![Zip-A-Folder](https://circleci.com/gh/maugenst/zip-a-folder.svg?style=svg)](https://circleci.com/gh/maugenst/zip-a-folder)
+[![CircleCI](https://circleci.com/gh/maugenst/zip-a-folder.svg?style=shield)](https://circleci.com/gh/maugenst/zip-a-folder)
+[![Coverage Status](https://coveralls.io/repos/github/maugenst/zip-a-folder/badge.svg?branch=master)](https://coveralls.io/github/maugenst/zip-a-folder?branch=master)
 
 # zip-a-folder
 Easy to use zip (or tar) a complete folder plain into a zip file 
