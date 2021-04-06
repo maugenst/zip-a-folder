@@ -1,5 +1,7 @@
 [![NPM](https://nodei.co/npm/zip-a-folder.png)](https://nodei.co/npm/zip-a-folder/)
 
+[![Zip-A-Folder](https://circleci.com/gh/maugenst/zip-a-folder.svg?style=svg)](https://circleci.com/gh/maugenst/zip-a-folder)
+
 # zip-a-folder
 Easy to use zip (or tar) a complete folder plain into a zip file 
 including compression ratio handling.
