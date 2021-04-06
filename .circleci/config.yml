@@ -11,7 +11,9 @@ jobs:
       - node/install-packages
       - run: npm run build
       - run: npm test
-      - coveralls/upload
+      - coveralls/upload:
+          flag_name: Zip-A-Folder Testing Coverage
+          verbose: true
 
 workflows:
   version: 2
