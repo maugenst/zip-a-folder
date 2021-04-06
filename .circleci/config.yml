@@ -1,6 +1,6 @@
 version: 2.1
 orbs:
-  node: circleci/node
+  node: circleci/node@4.2.1
 jobs:
   buildAndTest:
     # Reuse Docker container specification given by the node Orb
