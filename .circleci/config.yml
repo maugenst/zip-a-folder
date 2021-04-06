@@ -1,6 +1,7 @@
 version: 2.1
 orbs:
   node: circleci/node@4.2.1
+  coveralls: coveralls/coveralls@x.y.z
 jobs:
   buildAndTest:
     # Reuse Docker container specification given by the node Orb
@@ -10,12 +11,7 @@ jobs:
       - node/install-packages
       - run: npm run build
       - run: npm test
-      - store_artifacts:
-          path: test-results.xml
-          destination: deliverable.xml
-      - store_artifacts:
-          path: coverage
-          destination: coverage
+      - coveralls/upload
 
 workflows:
   version: 2

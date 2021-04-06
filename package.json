@@ -9,7 +9,7 @@
     "test": "test"
   },
   "scripts": {
-    "test": "jest --coverage && coveralls < ./coverage/lcov.info",
+    "test": "jest --coverage",
     "build": "npm run clean && tsc && npm run lint",
     "clean": "rimraf dist/",
     "lint": "eslint . --ext .ts"
