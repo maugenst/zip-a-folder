@@ -11,42 +11,82 @@ var COMPRESSION_LEVEL;
     COMPRESSION_LEVEL[COMPRESSION_LEVEL["high"] = 9] = "high";
 })(COMPRESSION_LEVEL = exports.COMPRESSION_LEVEL || (exports.COMPRESSION_LEVEL = {}));
 class ZipAFolder {
-    static async tar(srcFolder, zipFilePath, compression) {
-        if (compression === undefined || compression === COMPRESSION_LEVEL.uncompressed) {
-            await ZipAFolder.compress(srcFolder, zipFilePath, 'tar');
+    static async tar(srcFolder, tarFilePath, zipAFolderOptions) {
+        const o = zipAFolderOptions || {
+            compression: COMPRESSION_LEVEL.high,
+        };
+        if (!tarFilePath && !(zipAFolderOptions === null || zipAFolderOptions === void 0 ? void 0 : zipAFolderOptions.customWriteStream)) {
+            throw new Error('You must either pass a target filename or a custom write stream');
+        }
+        if (o.compression === COMPRESSION_LEVEL.uncompressed) {
+            await ZipAFolder.compress({ srcFolder, targetFilePath: tarFilePath, format: 'tar', zipAFolderOptions });
         }
         else {
-            await ZipAFolder.compress(srcFolder, zipFilePath, 'tar', {
-                gzip: true,
-                gzipOptions: { level: compression },
+            await ZipAFolder.compress({
+                srcFolder,
+                targetFilePath: tarFilePath,
+                format: 'tar',
+                zipAFolderOptions,
+                archiverOptions: {
+                    gzip: true,
+                    gzipOptions: {
+                        level: o.compression,
+                    },
+                },
             });
         }
     }
-    static async zip(srcFolder, zipFilePath, compression) {
-        if (compression === undefined || compression === COMPRESSION_LEVEL.uncompressed) {
-            await ZipAFolder.compress(srcFolder, zipFilePath, 'zip', {
-                store: true,
+    static async zip(srcFolder, zipFilePath, zipAFolderOptions) {
+        const o = zipAFolderOptions || {
+            compression: COMPRESSION_LEVEL.high,
+        };
+        if (o.compression === COMPRESSION_LEVEL.uncompressed) {
+            await ZipAFolder.compress({
+                srcFolder,
+                targetFilePath: zipFilePath,
+                format: 'zip',
+                zipAFolderOptions,
+                archiverOptions: {
+                    store: true,
+                },
             });
         }
         else {
-            await ZipAFolder.compress(srcFolder, zipFilePath, 'zip', {
-                zlib: { level: compression },
+            await ZipAFolder.compress({
+                srcFolder,
+                targetFilePath: zipFilePath,
+                format: 'zip',
+                zipAFolderOptions,
+                archiverOptions: {
+                    zlib: {
+                        level: o.compression,
+                    },
+                },
             });
         }
     }
-    static async compress(srcFolder, zipFilePath, format, archiverOptions) {
-        const targetBasePath = path.dirname(zipFilePath);
-        if (targetBasePath === srcFolder) {
-            throw new Error('Source and target folder must be different.');
+    static async compress({ srcFolder, targetFilePath, format, zipAFolderOptions, archiverOptions, }) {
+        let output;
+        if (!(zipAFolderOptions === null || zipAFolderOptions === void 0 ? void 0 : zipAFolderOptions.customWriteStream) && targetFilePath) {
+            const targetBasePath = path.dirname(targetFilePath);
+            if (targetBasePath === srcFolder) {
+                throw new Error('Source and target folder must be different.');
+            }
+            try {
+                await fs.promises.access(srcFolder, fs.constants.R_OK | fs.constants.W_OK);
+                await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK);
+            }
+            catch (e) {
+                throw new Error(`Permission error: ${e.message}`);
+            }
+            output = fs.createWriteStream(targetFilePath);
         }
-        try {
-            await fs.promises.access(srcFolder, fs.constants.R_OK | fs.constants.W_OK);
-            await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK);
+        else if (zipAFolderOptions && zipAFolderOptions.customWriteStream) {
+            output = zipAFolderOptions === null || zipAFolderOptions === void 0 ? void 0 : zipAFolderOptions.customWriteStream;
         }
-        catch (e) {
-            throw new Error(`Permission error: ${e.message}`);
+        else {
+            throw new Error('You must either provide a target file path or a custom write stream to write to.');
         }
-        const output = fs.createWriteStream(zipFilePath);
         const zipArchive = archiver(format, archiverOptions || {});
         return new Promise((resolve, reject) => {
             output.on('close', resolve);

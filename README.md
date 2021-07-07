@@ -5,13 +5,7 @@
 
 # zip-a-folder
 Easy to use zip (or tar) a complete folder plain into a zip file 
-including compression ratio handling.
-
-Version 1.0+ is incompatible to elder versions since it introduces a
-breaking API change. 
-* Callback function is NOT supported anymore. 
-* Provide the possibility to create tar archives. 
-* Set compression ratio (three levels supported by now uncompressed, medium and high)
+including compression ratio handling and custom write streams.
 
 ## Basic Usage
 
@@ -62,7 +56,30 @@ import { zip, COMPRESSION_LEVEL } from 'zip-a-folder';
 class TestMe {
 
     static async main() {
-        await zip('/path/to/the/folder', '/path/to/archive.zip', COMPRESSION_LEVEL.high);
+        await zip('/path/to/the/folder', '/path/to/archive.zip', {compression: COMPRESSION_LEVEL.high});
+    }
+}
+
+TestMe.main();
+```
+### Custom writeStreams
+You can now pipe output to any WriteStream (just pass WriteStream as a parameter).
+
+To keep the existing api stable the 2nd parameter (targetFilePath) can now be either undefined or 
+an empty string.
+
+ATTENTION: customWritestreams cannot be checked. So it is up to the user to check 
+on non existing target folders or if the targetfolder equals to the sourcefolder 
+(which leads to a circularity).
+
+```js
+import { zip, COMPRESSION_LEVEL } from 'zip-a-folder';
+import { fs } from 'fs';
+
+class TestMe {
+    static async main() {
+        const customWS = fs.createWriteStream('test/1234.zip');
+        await zipafolder.zip(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: customWS});    
     }
 }
 

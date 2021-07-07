@@ -1,6 +1,7 @@
 'use strict';
 import 'jest-extended';
 import * as fs from 'fs';
+import * as rimraf from 'rimraf';
 import * as path from 'path';
 import {COMPRESSION_LEVEL, tar, zip, ZipAFolder as zipafolder} from '../lib/ZipAFolder';
 
@@ -20,24 +21,10 @@ describe('Zip-A-Folder Test', function () {
     const testnotexistingTAR = path.resolve(__dirname, '/notexisting/testcallback.tgz');
 
     beforeAll(() => {
-        deleteFile(testZIP);
-        deleteFile(testUNCOMPRESSEDZIP);
-        deleteFile(testMEDIUMZIP);
-        deleteFile(testSMALLZIP);
-        deleteFile(testSameDirectoryZIP);
-
-        deleteFile(testTAR);
-        deleteFile(testUNCOMPRESSEDTAR);
-        deleteFile(testMEDIUMTAR);
-        deleteFile(testSMALLTAR);
-        deleteFile(testSameDirectoryTAR);
+        rimraf.sync('test/*.tgz');
+        rimraf.sync('test/*.tar');
+        rimraf.sync('test/*.zip');
     });
-
-    function deleteFile(file: string) {
-        try {
-            fs.unlinkSync(file);
-        } catch (_) {}
-    }
 
     it('ZIP test folder and zip target in same directory should throw an error', async () => {
         await expect(zipafolder.zip(path.resolve(__dirname, 'data/'), testSameDirectoryZIP)).rejects.toThrow(
@@ -52,9 +39,11 @@ describe('Zip-A-Folder Test', function () {
     });
 
     it('ZIP test folder using compression rate', async () => {
-        await zipafolder.zip(path.resolve(__dirname, 'data/'), testUNCOMPRESSEDZIP, COMPRESSION_LEVEL.uncompressed);
-        await zipafolder.zip(path.resolve(__dirname, 'data/'), testMEDIUMZIP, COMPRESSION_LEVEL.medium);
-        await zipafolder.zip(path.resolve(__dirname, 'data/'), testSMALLZIP, COMPRESSION_LEVEL.high);
+        await zipafolder.zip(path.resolve(__dirname, 'data/'), testUNCOMPRESSEDZIP, {
+            compression: COMPRESSION_LEVEL.uncompressed,
+        });
+        await zipafolder.zip(path.resolve(__dirname, 'data/'), testMEDIUMZIP, {compression: COMPRESSION_LEVEL.medium});
+        await zipafolder.zip(path.resolve(__dirname, 'data/'), testSMALLZIP, {compression: COMPRESSION_LEVEL.high});
 
         const sizeUNCOMPRESSED = fs.statSync(testUNCOMPRESSEDZIP).size;
         const sizeMEDIUM = fs.statSync(testMEDIUMZIP).size;
@@ -100,9 +89,11 @@ describe('Zip-A-Folder Test', function () {
     });
 
     it('TGZ test folder using compression rate', async () => {
-        await zipafolder.tar(path.resolve(__dirname, 'data/'), testUNCOMPRESSEDTAR, COMPRESSION_LEVEL.uncompressed);
-        await zipafolder.tar(path.resolve(__dirname, 'data/'), testMEDIUMTAR, COMPRESSION_LEVEL.medium);
-        await zipafolder.tar(path.resolve(__dirname, 'data/'), testSMALLTAR, COMPRESSION_LEVEL.high);
+        await zipafolder.tar(path.resolve(__dirname, 'data/'), testUNCOMPRESSEDTAR, {
+            compression: COMPRESSION_LEVEL.uncompressed,
+        });
+        await zipafolder.tar(path.resolve(__dirname, 'data/'), testMEDIUMTAR, {compression: COMPRESSION_LEVEL.medium});
+        await zipafolder.tar(path.resolve(__dirname, 'data/'), testSMALLTAR, {compression: COMPRESSION_LEVEL.high});
 
         const sizeUNCOMPRESSED = fs.statSync(testUNCOMPRESSEDTAR).size;
         const sizeBIG = fs.statSync(testMEDIUMTAR).size;
@@ -133,5 +124,29 @@ describe('Zip-A-Folder Test', function () {
         } catch (e) {
             expect(e.message).toMatch(/no such file or directory/);
         }
+    });
+
+    it('ZIP test custom writestream with zipfilepath empty string', async () => {
+        const customWS = fs.createWriteStream('test/123.zip');
+        await zipafolder.zip(path.resolve(__dirname, 'data/'), '', {customWriteStream: customWS});
+        expect(fs.existsSync('test/123.zip')).toBeTrue();
+    });
+
+    it('ZIP test custom writestream with zipfilepath undefined', async () => {
+        const customWS = fs.createWriteStream('test/1234.zip');
+        await zipafolder.zip(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: customWS});
+        expect(fs.existsSync('test/1234.zip')).toBeTrue();
+    });
+
+    it('TGZ test custom writestream with tarfilepath empty string', async () => {
+        const customWS = fs.createWriteStream('test/123.tgz');
+        await zipafolder.tar(path.resolve(__dirname, 'data/'), '', {customWriteStream: customWS});
+        expect(fs.existsSync('test/123.tgz')).toBeTrue();
+    });
+
+    it('TGZ test custom writestream with tarfilepath undefined', async () => {
+        const customWS = fs.createWriteStream('test/1234.tgz');
+        await zipafolder.tar(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: customWS});
+        expect(fs.existsSync('test/1234.tgz')).toBeTrue();
     });
 });

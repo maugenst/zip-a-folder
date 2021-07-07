@@ -43,9 +43,11 @@ describe('Zip-A-Folder Test', function () {
         expect(fs.existsSync(testZIP)).toBe(true);
     });
     it('ZIP test folder using compression rate', async () => {
-        await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), testUNCOMPRESSEDZIP, ZipAFolder_1.COMPRESSION_LEVEL.uncompressed);
-        await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), testMEDIUMZIP, ZipAFolder_1.COMPRESSION_LEVEL.medium);
-        await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), testSMALLZIP, ZipAFolder_1.COMPRESSION_LEVEL.high);
+        await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), testUNCOMPRESSEDZIP, {
+            compression: ZipAFolder_1.COMPRESSION_LEVEL.uncompressed,
+        });
+        await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), testMEDIUMZIP, { compression: ZipAFolder_1.COMPRESSION_LEVEL.medium });
+        await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), testSMALLZIP, { compression: ZipAFolder_1.COMPRESSION_LEVEL.high });
         const sizeUNCOMPRESSED = fs.statSync(testUNCOMPRESSEDZIP).size;
         const sizeMEDIUM = fs.statSync(testMEDIUMZIP).size;
         const sizeSMALL = fs.statSync(testSMALLZIP).size;
@@ -82,9 +84,11 @@ describe('Zip-A-Folder Test', function () {
         expect(fs.existsSync(testTAR)).toBe(true);
     });
     it('TGZ test folder using compression rate', async () => {
-        await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), testUNCOMPRESSEDTAR, ZipAFolder_1.COMPRESSION_LEVEL.uncompressed);
-        await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), testMEDIUMTAR, ZipAFolder_1.COMPRESSION_LEVEL.medium);
-        await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), testSMALLTAR, ZipAFolder_1.COMPRESSION_LEVEL.high);
+        await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), testUNCOMPRESSEDTAR, {
+            compression: ZipAFolder_1.COMPRESSION_LEVEL.uncompressed,
+        });
+        await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), testMEDIUMTAR, { compression: ZipAFolder_1.COMPRESSION_LEVEL.medium });
+        await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), testSMALLTAR, { compression: ZipAFolder_1.COMPRESSION_LEVEL.high });
         const sizeUNCOMPRESSED = fs.statSync(testUNCOMPRESSEDTAR).size;
         const sizeBIG = fs.statSync(testMEDIUMTAR).size;
         const sizeSMALL = fs.statSync(testSMALLTAR).size;
@@ -112,6 +116,26 @@ describe('Zip-A-Folder Test', function () {
         catch (e) {
             expect(e.message).toMatch(/no such file or directory/);
         }
+    });
+    it('ZIP test custom writestream', async () => {
+        const customWS = fs.createWriteStream('test/123.zip');
+        await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), '', { customWriteStream: customWS });
+        expect(fs.existsSync(path.resolve(__dirname, '/test/data/123.zip'))).toBeTrue();
+    });
+    it('ZIP test custom writestream', async () => {
+        const customWS = fs.createWriteStream('test/1234.zip');
+        await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), undefined, { customWriteStream: customWS });
+        expect(fs.existsSync(path.resolve(__dirname, '/test/data/1234.zip'))).toBeTrue();
+    });
+    it('TGZ test custom writestream', async () => {
+        const customWS = fs.createWriteStream('test/123.tgz');
+        await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), '', { customWriteStream: customWS });
+        expect(fs.existsSync(path.resolve(__dirname, '/test/data/123.tgz'))).toBeTrue();
+    });
+    it('TGZ test custom writestream', async () => {
+        const customWS = fs.createWriteStream('test/1234.tgz');
+        await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), undefined, { customWriteStream: customWS });
+        expect(fs.existsSync(path.resolve(__dirname, '/test/data/1234.tgz'))).toBeTrue();
     });
 });
 //# sourceMappingURL=tests-ZipAFolder.js.map
