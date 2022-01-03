@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 require("jest-extended");
 const fs = require("fs");
+const rimraf = require("rimraf");
 const path = require("path");
 const ZipAFolder_1 = require("../lib/ZipAFolder");
 describe('Zip-A-Folder Test', function () {
@@ -18,23 +19,10 @@ describe('Zip-A-Folder Test', function () {
     const testSameDirectoryTAR = path.resolve(__dirname, 'data/test.tgz');
     const testnotexistingTAR = path.resolve(__dirname, '/notexisting/testcallback.tgz');
     beforeAll(() => {
-        deleteFile(testZIP);
-        deleteFile(testUNCOMPRESSEDZIP);
-        deleteFile(testMEDIUMZIP);
-        deleteFile(testSMALLZIP);
-        deleteFile(testSameDirectoryZIP);
-        deleteFile(testTAR);
-        deleteFile(testUNCOMPRESSEDTAR);
-        deleteFile(testMEDIUMTAR);
-        deleteFile(testSMALLTAR);
-        deleteFile(testSameDirectoryTAR);
+        rimraf.sync('test/*.tgz');
+        rimraf.sync('test/*.tar');
+        rimraf.sync('test/*.zip');
     });
-    function deleteFile(file) {
-        try {
-            fs.unlinkSync(file);
-        }
-        catch (_) { }
-    }
     it('ZIP test folder and zip target in same directory should throw an error', async () => {
         await expect(ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), testSameDirectoryZIP)).rejects.toThrow(/Source and target folder must be different./);
     });
@@ -55,7 +43,7 @@ describe('Zip-A-Folder Test', function () {
         expect(sizeSMALL).toBeLessThan(sizeMEDIUM);
     });
     it('ZIP test folder direct via constant', async () => {
-        await ZipAFolder_1.zip(path.resolve(__dirname, 'data/'), testZIP);
+        await (0, ZipAFolder_1.zip)(path.resolve(__dirname, 'data/'), testZIP);
         expect(fs.existsSync(testZIP)).toBe(true);
     });
     it('ZIP test folder failing', async () => {
@@ -96,7 +84,7 @@ describe('Zip-A-Folder Test', function () {
         expect(sizeSMALL).toBeLessThan(sizeBIG);
     });
     it('TGZ test folder direct via constant', async () => {
-        await ZipAFolder_1.tar(path.resolve(__dirname, 'data/'), testTAR);
+        await (0, ZipAFolder_1.tar)(path.resolve(__dirname, 'data/'), testTAR);
         expect(fs.existsSync(testTAR)).toBe(true);
     });
     it('TGZ test folder failing', async () => {
@@ -117,25 +105,29 @@ describe('Zip-A-Folder Test', function () {
             expect(e.message).toMatch(/no such file or directory/);
         }
     });
-    it('ZIP test custom writestream', async () => {
+    it('ZIP test custom writestream with zipfilepath empty string', async () => {
         const customWS = fs.createWriteStream('test/123.zip');
         await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), '', { customWriteStream: customWS });
-        expect(fs.existsSync(path.resolve(__dirname, '/test/data/123.zip'))).toBeTrue();
+        expect(fs.existsSync('test/123.zip')).toBeTrue();
     });
-    it('ZIP test custom writestream', async () => {
+    it('ZIP test custom writestream with zipfilepath undefined', async () => {
         const customWS = fs.createWriteStream('test/1234.zip');
         await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'data/'), undefined, { customWriteStream: customWS });
-        expect(fs.existsSync(path.resolve(__dirname, '/test/data/1234.zip'))).toBeTrue();
+        expect(fs.existsSync('test/1234.zip')).toBeTrue();
     });
-    it('TGZ test custom writestream', async () => {
+    it('TGZ test custom writestream with tarfilepath empty string', async () => {
         const customWS = fs.createWriteStream('test/123.tgz');
         await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), '', { customWriteStream: customWS });
-        expect(fs.existsSync(path.resolve(__dirname, '/test/data/123.tgz'))).toBeTrue();
+        expect(fs.existsSync('test/123.tgz')).toBeTrue();
     });
-    it('TGZ test custom writestream', async () => {
+    it('TGZ test custom writestream with tarfilepath undefined', async () => {
         const customWS = fs.createWriteStream('test/1234.tgz');
         await ZipAFolder_1.ZipAFolder.tar(path.resolve(__dirname, 'data/'), undefined, { customWriteStream: customWS });
-        expect(fs.existsSync(path.resolve(__dirname, '/test/data/1234.tgz'))).toBeTrue();
+        expect(fs.existsSync('test/1234.tgz')).toBeTrue();
+    });
+    it.skip('Zip a very large folder ', async () => {
+        await ZipAFolder_1.ZipAFolder.zip(path.resolve(__dirname, 'largeFolder'), 'test/large.zip');
+        expect(fs.existsSync('test/large.zip')).toBeTrue();
     });
 });
 //# sourceMappingURL=tests-ZipAFolder.js.map

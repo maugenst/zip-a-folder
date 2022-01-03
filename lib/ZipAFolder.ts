@@ -10,12 +10,23 @@ export enum COMPRESSION_LEVEL {
     high = 9,
 }
 
+/**
+ * Options to pass in to zip a folder
+ * compression default is 'high'
+ */
 export type ZipAFolderOptions = {
     compression?: COMPRESSION_LEVEL;
     customWriteStream?: WriteStream;
 };
 
 export class ZipAFolder {
+    /**
+     * Tars a given folder into a gzipped tar archive.
+     * If no zipAFolderOptions are passed in, the default compression level is high.
+     * @param srcFolder
+     * @param tarFilePath
+     * @param zipAFolderOptions
+     */
     static async tar(
         srcFolder: string,
         tarFilePath: string | undefined,
@@ -24,10 +35,6 @@ export class ZipAFolder {
         const o: ZipAFolderOptions = zipAFolderOptions || {
             compression: COMPRESSION_LEVEL.high,
         };
-
-        if (!tarFilePath && !zipAFolderOptions?.customWriteStream) {
-            throw new Error('You must either pass a target filename or a custom write stream');
-        }
 
         if (o.compression === COMPRESSION_LEVEL.uncompressed) {
             await ZipAFolder.compress({srcFolder, targetFilePath: tarFilePath, format: 'tar', zipAFolderOptions});
@@ -47,6 +54,13 @@ export class ZipAFolder {
         }
     }
 
+    /**
+     * Zips a given folder into a zip archive.
+     * If no zipAFolderOptions are passed in, the default compression level is high.
+     * @param srcFolder
+     * @param tarFilePath
+     * @param zipAFolderOptions
+     */
     static async zip(
         srcFolder: string,
         zipFilePath: string | undefined,
@@ -105,7 +119,7 @@ export class ZipAFolder {
             try {
                 await fs.promises.access(srcFolder, fs.constants.R_OK | fs.constants.W_OK); //eslint-disable-line no-bitwise
                 await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK); //eslint-disable-line no-bitwise
-            } catch (e) {
+            } catch (e: any) {
                 throw new Error(`Permission error: ${e.message}`);
             }
             output = fs.createWriteStream(targetFilePath);

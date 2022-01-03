@@ -18,6 +18,7 @@ npm-debug.log
 test/*.zip
 test/*.tgz
 test/*.tar
+test/largeFolder
 
 coverage
 .coveralls.yml
