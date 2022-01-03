@@ -27,19 +27,18 @@ describe('Zip-A-Folder Test', function () {
     });
 
     it('Called without a targetFilePath or a customWriteStream should throw an error', async () => {
-        await expect(zipafolder.zip(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: undefined})).rejects.toThrow(
-            /You must either provide a target file path or a custom write stream to write to./
-        );
+        await expect(
+            zipafolder.zip(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: undefined})
+        ).rejects.toThrow(/You must either provide a target file path or a custom write stream to write to./);
         await expect(zipafolder.zip(path.resolve(__dirname, 'data/'), undefined)).rejects.toThrow(
             /You must either provide a target file path or a custom write stream to write to./
         );
-        await expect(zipafolder.tar(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: undefined})).rejects.toThrow(
-            /You must either provide a target file path or a custom write stream to write to./
-        );
+        await expect(
+            zipafolder.tar(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: undefined})
+        ).rejects.toThrow(/You must either provide a target file path or a custom write stream to write to./);
         await expect(zipafolder.tar(path.resolve(__dirname, 'data/'), undefined)).rejects.toThrow(
             /You must either provide a target file path or a custom write stream to write to./
         );
-
     });
 
     it('ZIP test folder and zip target in same directory should throw an error', async () => {
