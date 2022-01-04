@@ -15,9 +15,6 @@ class ZipAFolder {
         const o = zipAFolderOptions || {
             compression: COMPRESSION_LEVEL.high,
         };
-        if (!tarFilePath && !(zipAFolderOptions === null || zipAFolderOptions === void 0 ? void 0 : zipAFolderOptions.customWriteStream)) {
-            throw new Error('You must either pass a target filename or a custom write stream');
-        }
         if (o.compression === COMPRESSION_LEVEL.uncompressed) {
             await ZipAFolder.compress({ srcFolder, targetFilePath: tarFilePath, format: 'tar', zipAFolderOptions });
         }

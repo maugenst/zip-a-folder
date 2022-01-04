@@ -50,7 +50,7 @@ TestMe.main();
 For the sake of easy use, supported compression levels are (by now):
 `COMPRESSION_LEVEL.high`, `COMPRESSION_LEVEL.medium` or `COMPRESSION_LEVEL.uncompressed`. 
 
-The default compression - level is 'high'.
+The default compression - level is `high`.
 
 ```js
 import { zip, COMPRESSION_LEVEL } from 'zip-a-folder';
