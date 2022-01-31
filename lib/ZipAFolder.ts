@@ -117,7 +117,7 @@ export class ZipAFolder {
                 throw new Error('Source and target folder must be different.');
             }
             try {
-                await fs.promises.access(srcFolder, fs.constants.R_OK | fs.constants.W_OK); //eslint-disable-line no-bitwise
+                await fs.promises.access(srcFolder, fs.constants.R_OK); //eslint-disable-line no-bitwise
                 await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK); //eslint-disable-line no-bitwise
             } catch (e: any) {
                 throw new Error(`Permission error: ${e.message}`);
