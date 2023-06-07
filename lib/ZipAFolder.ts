@@ -58,7 +58,7 @@ export class ZipAFolder {
      * Zips a given folder into a zip archive.
      * If no zipAFolderOptions are passed in, the default compression level is high.
      * @param srcFolder
-     * @param tarFilePath
+     * @param zipFilePath
      * @param zipAFolderOptions
      */
     static async zip(

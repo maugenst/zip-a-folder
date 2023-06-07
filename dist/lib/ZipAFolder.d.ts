@@ -5,7 +5,7 @@ export declare enum COMPRESSION_LEVEL {
     medium = 5,
     high = 9
 }
-export declare type ZipAFolderOptions = {
+export type ZipAFolderOptions = {
     compression?: COMPRESSION_LEVEL;
     customWriteStream?: WriteStream;
 };
