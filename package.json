@@ -10,8 +10,8 @@
   },
   "scripts": {
     "test": "jest --coverage",
-    "build": "npm run clean && tsc && npm run lint",
-    "clean": "rimraf dist/",
+    "build": "npm run clean; tsc && npm run lint",
+    "clean": "rimraf dist/ > /dev/null 2>&1",
     "lint": "eslint . --ext .ts"
   },
   "repository": {
