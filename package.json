@@ -1,7 +1,13 @@
 {
   "name": "zip-a-folder",
-  "version": "1.1.7",
-  "description": "Zip/Tar a complete folder into a zip/tgz file",
+  "version": "2.0.0",
+  "description": "Zip/Tar a complete folder or a glob list into a zip/tgz file",
+  "author": "Marius Augenstein",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/maugenst/zip-a-folder/issues"
+  },
+  "homepage": "https://github.com/maugenst/zip-a-folder#readme",
   "main": "dist/lib/ZipAFolder.js",
   "typings": "dist/lib/ZipAFolder.d.ts",
   "files": [
@@ -24,14 +30,9 @@
     "async",
     "promise"
   ],
-  "author": "Marius Augenstein",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/maugenst/zip-a-folder/issues"
-  },
-  "homepage": "https://github.com/maugenst/zip-a-folder#readme",
   "devDependencies": {
     "@types/archiver": "^5.3.2",
+    "@types/is-glob": "^4.0.2",
     "@types/jest": "^29.5.2",
     "@types/node": "^20.2.5",
     "@types/rimraf": "^3.0.2",
@@ -53,6 +54,7 @@
     "typescript": "^5.0.4"
   },
   "dependencies": {
-    "archiver": "^5.3.1"
+    "archiver": "^5.3.1",
+    "is-glob": "^4.0.3"
   }
 }
