@@ -1,13 +1,14 @@
 {
   "name": "zip-a-folder",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Zip/Tar a complete folder into a zip/tgz file",
   "main": "dist/lib/ZipAFolder.js",
   "typings": "dist/lib/ZipAFolder.d.ts",
-  "directories": {
-    "lib": "lib",
-    "test": "test"
-  },
+  "files": [
+    "README.md",
+    "lib",
+    "dist"
+  ],
   "scripts": {
     "test": "jest --coverage",
     "build": "tsc --build --clean && tsc && npm run lint",
