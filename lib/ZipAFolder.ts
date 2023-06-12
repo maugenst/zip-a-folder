@@ -3,6 +3,7 @@ import {WriteStream} from 'fs';
 import * as path from 'path';
 import * as archiver from 'archiver';
 import * as fs from 'fs';
+import * as isGlob from 'is-glob';
 
 export enum COMPRESSION_LEVEL {
     uncompressed = 0,
@@ -21,14 +22,14 @@ export type ZipAFolderOptions = {
 
 export class ZipAFolder {
     /**
-     * Tars a given folder into a gzipped tar archive.
+     * Tars a given folder or a glob into a gzipped tar archive.
      * If no zipAFolderOptions are passed in, the default compression level is high.
-     * @param srcFolder
-     * @param tarFilePath
+     * @param src can be a string path or a glob
+     * @param tarFilePath path to the zip file
      * @param zipAFolderOptions
      */
     static async tar(
-        srcFolder: string,
+        src: string,
         tarFilePath: string | undefined,
         zipAFolderOptions?: ZipAFolderOptions
     ): Promise<void | Error> {
@@ -37,10 +38,10 @@ export class ZipAFolder {
         };
 
         if (o.compression === COMPRESSION_LEVEL.uncompressed) {
-            await ZipAFolder.compress({srcFolder, targetFilePath: tarFilePath, format: 'tar', zipAFolderOptions});
+            await ZipAFolder.compress({src, targetFilePath: tarFilePath, format: 'tar', zipAFolderOptions});
         } else {
             await ZipAFolder.compress({
-                srcFolder,
+                src,
                 targetFilePath: tarFilePath,
                 format: 'tar',
                 zipAFolderOptions,
@@ -55,14 +56,14 @@ export class ZipAFolder {
     }
 
     /**
-     * Zips a given folder into a zip archive.
+     * Zips a given folder or a glob into a zip archive.
      * If no zipAFolderOptions are passed in, the default compression level is high.
-     * @param srcFolder
-     * @param zipFilePath
+     * @param src can be a string path or a glob
+     * @param zipFilePath path to the zip file
      * @param zipAFolderOptions
      */
     static async zip(
-        srcFolder: string,
+        src: string,
         zipFilePath: string | undefined,
         zipAFolderOptions?: ZipAFolderOptions
     ): Promise<void | Error> {
@@ -72,7 +73,7 @@ export class ZipAFolder {
 
         if (o.compression === COMPRESSION_LEVEL.uncompressed) {
             await ZipAFolder.compress({
-                srcFolder,
+                src,
                 targetFilePath: zipFilePath,
                 format: 'zip',
                 zipAFolderOptions,
@@ -82,7 +83,7 @@ export class ZipAFolder {
             });
         } else {
             await ZipAFolder.compress({
-                srcFolder,
+                src,
                 targetFilePath: zipFilePath,
                 format: 'zip',
                 zipAFolderOptions,
@@ -96,13 +97,13 @@ export class ZipAFolder {
     }
 
     private static async compress({
-        srcFolder,
+        src,
         targetFilePath,
         format,
         zipAFolderOptions,
         archiverOptions,
     }: {
-        srcFolder: string;
+        src: string;
         targetFilePath?: string;
         format: archiver.Format;
         zipAFolderOptions?: ZipAFolderOptions;
@@ -113,11 +114,13 @@ export class ZipAFolder {
         if (!zipAFolderOptions?.customWriteStream && targetFilePath) {
             const targetBasePath: string = path.dirname(targetFilePath);
 
-            if (targetBasePath === srcFolder) {
+            if (targetBasePath === src) {
                 throw new Error('Source and target folder must be different.');
             }
             try {
-                await fs.promises.access(srcFolder, fs.constants.R_OK); //eslint-disable-line no-bitwise
+                if (!isGlob(src)) {
+                    await fs.promises.access(src, fs.constants.R_OK); //eslint-disable-line no-bitwise
+                }
                 await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK); //eslint-disable-line no-bitwise
             } catch (e: any) {
                 throw new Error(`Permission error: ${e.message}`);
@@ -136,7 +139,14 @@ export class ZipAFolder {
             output.on('error', reject);
 
             zipArchive.pipe(output);
-            zipArchive.directory(srcFolder, false);
+
+            if (isGlob(src)) {
+                src.split(',').forEach((globPart) => {
+                    zipArchive.glob(globPart);
+                });
+            } else {
+                zipArchive.directory(src, false);
+            }
             zipArchive.finalize();
         });
     }

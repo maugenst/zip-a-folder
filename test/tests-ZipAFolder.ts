@@ -12,6 +12,8 @@ describe('Zip-A-Folder Test', function () {
     const testSMALLZIP = path.resolve(__dirname, 'testSMALL.zip');
     const testSameDirectoryZIP = path.resolve(__dirname, 'data/test.zip');
     const testnotexistingZIP = path.resolve(__dirname, '/notexisting/testcallback.zip');
+    const testGlobZIP = path.resolve(__dirname, 'test.globbed.zip');
+    const testGlobMultiZIP = path.resolve(__dirname, 'test.globbed.multi.zip');
 
     const testTAR = path.resolve(__dirname, 'test.tgz');
     const testUNCOMPRESSEDTAR = path.resolve(__dirname, 'testUNCOMPRESSED.tar');
@@ -19,6 +21,8 @@ describe('Zip-A-Folder Test', function () {
     const testSMALLTAR = path.resolve(__dirname, 'testSMALL.tgz');
     const testSameDirectoryTAR = path.resolve(__dirname, 'data/test.tgz');
     const testnotexistingTAR = path.resolve(__dirname, '/notexisting/testcallback.tgz');
+    const testGlobTAR = path.resolve(__dirname, 'test.globbed.tgz');
+    const testGlobMultiTAR = path.resolve(__dirname, 'test.globbed.multi.tgz');
 
     beforeAll(() => {
         rimraf.sync('test/*.tgz');
@@ -89,6 +93,18 @@ describe('Zip-A-Folder Test', function () {
         } catch (e: any) {
             expect(e.message).toMatch(/no such file or directory/);
         }
+    });
+
+    it('ZIP test globbing', async () => {
+        await zip('**/*.json', testGlobZIP);
+
+        expect(fs.existsSync(testGlobZIP)).toBe(true);
+    });
+
+    it('ZIP test globbing with multiple paths', async () => {
+        await zip('**/*.json, **/*.txt', testGlobMultiZIP);
+
+        expect(fs.existsSync(testGlobMultiZIP)).toBe(true);
     });
 
     it('TGZ test folder and tar target in same directory should throw an error', async () => {
@@ -163,6 +179,18 @@ describe('Zip-A-Folder Test', function () {
         const customWS = fs.createWriteStream('test/1234.tgz');
         await zipafolder.tar(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: customWS});
         expect(fs.existsSync('test/1234.tgz')).toBeTruthy();
+    });
+
+    it('TGZ test globbing', async () => {
+        await tar('**/*.json', testGlobTAR);
+
+        expect(fs.existsSync(testGlobTAR)).toBe(true);
+    });
+
+    it('TGZ test globbing with multiple paths', async () => {
+        await tar('**/*.json, **/*.txt', testGlobMultiTAR);
+
+        expect(fs.existsSync(testGlobMultiTAR)).toBe(true);
     });
 
     /**
