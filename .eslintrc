@@ -11,7 +11,8 @@
   ],
   "ignorePatterns": [
     "node_modules/**",
-    "dist/**"
+    "dist/**",
+    "test/**"
   ],
   "rules": {
     "prefer-arrow/prefer-arrow-functions": 0,

@@ -1,9 +1,10 @@
 'use strict';
 import {WriteStream} from 'fs';
-import * as path from 'path';
-import * as archiver from 'archiver';
-import * as fs from 'fs';
-import * as isGlob from 'is-glob';
+import path from 'path';
+import archiver from 'archiver';
+import fs from 'fs';
+import isGlob from 'is-glob';
+import {glob} from 'glob';
 
 export enum COMPRESSION_LEVEL {
     uncompressed = 0,
@@ -31,7 +32,7 @@ export class ZipAFolder {
     static async tar(
         src: string,
         tarFilePath: string | undefined,
-        zipAFolderOptions?: ZipAFolderOptions
+        zipAFolderOptions?: ZipAFolderOptions,
     ): Promise<void | Error> {
         const o: ZipAFolderOptions = zipAFolderOptions || {
             compression: COMPRESSION_LEVEL.high,
@@ -65,7 +66,7 @@ export class ZipAFolder {
     static async zip(
         src: string,
         zipFilePath: string | undefined,
-        zipAFolderOptions?: ZipAFolderOptions
+        zipAFolderOptions?: ZipAFolderOptions,
     ): Promise<void | Error> {
         const o: ZipAFolderOptions = zipAFolderOptions || {
             compression: COMPRESSION_LEVEL.high,
@@ -110,6 +111,7 @@ export class ZipAFolder {
         archiverOptions?: archiver.ArchiverOptions;
     }): Promise<void | Error> {
         let output: WriteStream;
+        const globList: string[] = [];
 
         if (!zipAFolderOptions?.customWriteStream && targetFilePath) {
             const targetBasePath: string = path.dirname(targetFilePath);
@@ -125,6 +127,16 @@ export class ZipAFolder {
             } catch (e: any) {
                 throw new Error(`Permission error: ${e.message}`);
             }
+
+            if (isGlob(src)) {
+                for (const globPart of src.split(',')) {
+                    globList.push(...(await glob(globPart.trim())));
+                }
+                if (globList.length === 0) {
+                    throw new Error(`No glob match found for "${src}".`);
+                }
+            }
+
             output = fs.createWriteStream(targetFilePath);
         } else if (zipAFolderOptions && zipAFolderOptions.customWriteStream) {
             output = zipAFolderOptions?.customWriteStream;
@@ -134,16 +146,19 @@ export class ZipAFolder {
 
         const zipArchive: archiver.Archiver = archiver(format, archiverOptions || {});
 
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             output.on('close', resolve);
             output.on('error', reject);
 
             zipArchive.pipe(output);
 
             if (isGlob(src)) {
-                src.split(',').forEach((globPart) => {
-                    zipArchive.glob(globPart);
-                });
+                for (const file of globList) {
+                    const content = await fs.promises.readFile(file);
+                    zipArchive.append(content, {
+                        name: file,
+                    });
+                }
             } else {
                 zipArchive.directory(src, false);
             }

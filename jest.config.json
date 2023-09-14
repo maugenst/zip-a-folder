@@ -1,13 +1,13 @@
 {
+    "name": "ZipAFolder",
     "testEnvironment": "node",
     "setupFilesAfterEnv": ["jest-extended"],
     "testRegex": "test/tests-.+\\.ts",
     "testPathIgnorePatterns": ["/.+tests-.+\\.d\\.ts"],
     "transform": {
-        "^.+\\.(ts|tsx)$": ["ts-jest", {
-            "diagnostics": false
-        }]
+        "^.+\\.(ts|tsx)$": "@swc/jest"
     },
+    "extensionsToTreatAsEsm": [".ts", ".tsx"],
     "rootDir": "./",
     "forceExit": true,
     "silent": true,

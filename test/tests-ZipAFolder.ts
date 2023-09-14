@@ -1,6 +1,7 @@
 'use strict';
 import 'jest-extended';
 import * as fs from 'fs';
+const {open, mkdir, rm} = require('fs').promises;
 import * as rimraf from 'rimraf';
 import * as path from 'path';
 import {COMPRESSION_LEVEL, tar, zip, ZipAFolder as zipafolder} from '../lib/ZipAFolder';
@@ -13,6 +14,7 @@ describe('Zip-A-Folder Test', function () {
     const testSameDirectoryZIP = path.resolve(__dirname, 'data/test.zip');
     const testnotexistingZIP = path.resolve(__dirname, '/notexisting/testcallback.zip');
     const testGlobZIP = path.resolve(__dirname, 'test.globbed.zip');
+    const testGlobOnTheFlyZIP = path.resolve(__dirname, 'test.globbed.on.the.fly.zip');
     const testGlobMultiZIP = path.resolve(__dirname, 'test.globbed.multi.zip');
 
     const testTAR = path.resolve(__dirname, 'test.tgz');
@@ -32,22 +34,22 @@ describe('Zip-A-Folder Test', function () {
 
     it('Called without a targetFilePath or a customWriteStream should throw an error', async () => {
         await expect(
-            zipafolder.zip(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: undefined})
+            zipafolder.zip(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: undefined}),
         ).rejects.toThrow(/You must either provide a target file path or a custom write stream to write to./);
         await expect(zipafolder.zip(path.resolve(__dirname, 'data/'), undefined)).rejects.toThrow(
-            /You must either provide a target file path or a custom write stream to write to./
+            /You must either provide a target file path or a custom write stream to write to./,
         );
         await expect(
-            zipafolder.tar(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: undefined})
+            zipafolder.tar(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: undefined}),
         ).rejects.toThrow(/You must either provide a target file path or a custom write stream to write to./);
         await expect(zipafolder.tar(path.resolve(__dirname, 'data/'), undefined)).rejects.toThrow(
-            /You must either provide a target file path or a custom write stream to write to./
+            /You must either provide a target file path or a custom write stream to write to./,
         );
     });
 
     it('ZIP test folder and zip target in same directory should throw an error', async () => {
         await expect(zipafolder.zip(path.resolve(__dirname, 'data/'), testSameDirectoryZIP)).rejects.toThrow(
-            /Source and target folder must be different./
+            /Source and target folder must be different./,
         );
     });
 
@@ -96,9 +98,40 @@ describe('Zip-A-Folder Test', function () {
     });
 
     it('ZIP test globbing', async () => {
-        await zip('**/*.json', testGlobZIP);
+        await zip('test/**/*.json', testGlobZIP);
 
         expect(fs.existsSync(testGlobZIP)).toBe(true);
+    });
+
+    it('ZIP test globbing with inaccessible file/folder', async () => {
+        await expect(zip('test/inaccessible/**/*.json', 'THISWILLNEVEREXIST.zip')).rejects.toThrow(
+            /No glob match found/,
+        );
+        expect(fs.existsSync('THISWILLNEVEREXIST.zip')).toBe(false);
+    });
+
+    it('ZIP test globbing with creating content on the fly', async () => {
+        await mkdir('test/foo/bar', {recursive: true});
+        const fd = await open('test/foo/bar/a.json', 'w');
+        await fd.close();
+
+        await zip('test/foo/bar/**/*.json', testGlobOnTheFlyZIP);
+        expect(fs.existsSync(testGlobOnTheFlyZIP)).toBe(true);
+        await rm('test/foo', {recursive: true});
+    });
+
+    it('ZIP test globbing a non existing target', async () => {
+        await expect(zip('test/bar/**/*.json', 'THISWILLNEVEREXIST.zip')).rejects.toThrow(/No glob match found/);
+
+        expect(fs.existsSync('THISWILLNEVEREXIST.zip')).toBe(false);
+    });
+
+    it('ZIP test globbing multiple non existing targets', async () => {
+        await expect(zip('test/nonexisting/**/*.json, test/**/*.docx', 'THISWILLNEVEREXIST.zip')).rejects.toThrow(
+            /No glob match found/,
+        );
+
+        expect(fs.existsSync('THISWILLNEVEREXIST.zip')).toBe(false);
     });
 
     it('ZIP test globbing with multiple paths', async () => {
@@ -109,7 +142,7 @@ describe('Zip-A-Folder Test', function () {
 
     it('TGZ test folder and tar target in same directory should throw an error', async () => {
         await expect(zipafolder.tar(path.resolve(__dirname, 'data/'), testSameDirectoryTAR)).rejects.toThrow(
-            /Source and target folder must be different./
+            /Source and target folder must be different./,
         );
     });
 

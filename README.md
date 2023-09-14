@@ -1,7 +1,8 @@
 [![NPM](https://nodei.co/npm/zip-a-folder.png)](https://nodei.co/npm/zip-a-folder/)
 
-[![CircleCI](https://circleci.com/gh/maugenst/zip-a-folder.svg?style=shield)](https://circleci.com/gh/maugenst/zip-a-folder)
+[![CircleCI](https://circleci.com/gh/maugenst/zip-a-folder.svg?style=shield&downloads=true&downloadRank=true&stars=true)](https://circleci.com/gh/maugenst/zip-a-folder)
 [![Coverage Status](https://coveralls.io/repos/github/maugenst/zip-a-folder/badge.svg?branch=master)](https://coveralls.io/github/maugenst/zip-a-folder?branch=master)
+[![Known Vulnerabilities](https://snyk.io/test/github/maugenst/zip-a-folder/badge.svg)](https://snyk.io/test/github/maugenst/zip-a-folder)
 
 # zip-a-folder
 Easy to use zip (or tar) a complete folder or a list of globs plain into a zip/tar/tgz file 
