@@ -79,6 +79,12 @@ describe('Zip-A-Folder Test', function () {
         expect(fs.existsSync(testZIP)).toBe(true);
     });
 
+    it('ZIP test folder direct via constant', async () => {
+        await zip(path.resolve(__dirname, 'data/'), testZIP);
+
+        expect(fs.existsSync(testZIP)).toBe(true);
+    });
+
     it('ZIP test folder failing', async () => {
         expect.assertions(1);
         try {

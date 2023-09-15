@@ -1,5 +1,4 @@
 {
-    "name": "ZipAFolder",
     "testEnvironment": "node",
     "setupFilesAfterEnv": ["jest-extended"],
     "testRegex": "test/tests-.+\\.ts",

@@ -1,6 +1,6 @@
 {
   "name": "zip-a-folder",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Zip/Tar a complete folder or a glob list into a zip/tgz file",
   "author": "Marius Augenstein",
   "license": "MIT",
@@ -10,6 +10,7 @@
   "homepage": "https://github.com/maugenst/zip-a-folder#readme",
   "main": "dist/lib/ZipAFolder.js",
   "typings": "lib/ZipAFolder.ts",
+  "type": "module",
   "files": [
     "README.md",
     "lib",
