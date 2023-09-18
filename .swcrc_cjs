@@ -1,0 +1,25 @@
+{
+    "module": {
+        "type": "commonjs"
+    },
+    "jsc": {
+        "parser": {
+            "syntax": "typescript",
+            "tsx": false,
+            "decorators": true,
+            "dynamicImport": true
+        },
+        "transform": {
+            "legacyDecorator": true,
+            "decoratorMetadata": true
+        },
+        "loose": false,
+        "minify": {
+              "compress": false,
+              "mangle": false
+        }
+    },
+    "minify": false,
+    "sourceMaps": true,
+    "inlineSourcesContent": true
+}

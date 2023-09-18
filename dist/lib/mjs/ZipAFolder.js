@@ -79,6 +79,7 @@ export class ZipAFolder {
     }
     static async compress({ src, targetFilePath, format, zipAFolderOptions, archiverOptions }) {
         let output;
+        const globList = [];
         if (!zipAFolderOptions?.customWriteStream && targetFilePath) {
             const targetBasePath = path.dirname(targetFilePath);
             if (targetBasePath === src) {
@@ -93,12 +94,11 @@ export class ZipAFolder {
                 throw new Error(`Permission error: ${e.message}`);
             }
             if (isGlob(src)) {
-                const globList = [];
                 for (const globPart of src.split(',')){
                     globList.push(...await glob(globPart.trim()));
                 }
                 if (globList.length === 0) {
-                    throw new Error(`Glob "${src}" does not match any files or folders.`);
+                    throw new Error(`No glob match found for "${src}".`);
                 }
             }
             output = fs.createWriteStream(targetFilePath);
@@ -108,13 +108,16 @@ export class ZipAFolder {
             throw new Error('You must either provide a target file path or a custom write stream to write to.');
         }
         const zipArchive = archiver(format, archiverOptions || {});
-        return new Promise((resolve, reject)=>{
+        return new Promise(async (resolve, reject)=>{
             output.on('close', resolve);
             output.on('error', reject);
             zipArchive.pipe(output);
             if (isGlob(src)) {
-                for (const globPart of src.split(',')){
-                    zipArchive.glob(globPart);
+                for (const file of globList){
+                    const content = await fs.promises.readFile(file);
+                    zipArchive.append(content, {
+                        name: file
+                    });
                 }
             } else {
                 zipArchive.directory(src, false);
