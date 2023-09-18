@@ -8,8 +8,10 @@
 Easy to use zip (or tar) a complete folder or a list of globs plain into a zip/tar/tgz file 
 including compression ratio handling and custom write streams.
 
-Version 2 adds glob lists handling as a src. So please be aware that using globs intentionally
-breaks up the "create-a-zip/tar-file-from-a-folder" approach.
+## incompatible changes
+* Version 2 adds glob lists handling as a src. So please be aware that using globs intentionally breaks up the "create-a-zip/tar-file-from-a-folder" approach.
+* Version 3 adds the possibility to zip-a-folder to be usable either in commonjs or esm module environments.
+* Version 3.1 adds the possibility to specify target folder within a zip file. By default the structure within a zip file doesn't contain the src folder, but the files and folder underneath.  
 
 ## Basic Usage
 
@@ -97,7 +99,7 @@ TestMe.main();
 The first parameter can be either a path or a glob. Globs are separated by comma.
 
 ```js
-import { zip} from 'zip-a-folder';
+import {zip} from 'zip-a-folder';
 
 class TestMe {
 
@@ -112,6 +114,24 @@ class TestMe {
 TestMe.main();
 ```
 
+### Destination path handling (>=3.1.x)
+
+With passing a destination path to zip-a-folder options object you can define the target folder structure
+within the generated zip.
+
+```js
+import {zip} from 'zip-a-folder';
+
+class TestMe {
+
+    static async main() {
+        // zip all json into an archive
+        await zip('data/', '/path/to/archive.zip', {destPath: 'data/'});
+    }
+}
+
+TestMe.main();
+```
 
 ### Tests
 

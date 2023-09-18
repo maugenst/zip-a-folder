@@ -8,6 +8,7 @@ import {COMPRESSION_LEVEL, tar, zip, ZipAFolder as zipafolder} from '../lib/ZipA
 
 describe('Zip-A-Folder Test', function () {
     const testZIP = path.resolve(__dirname, 'test.zip');
+    const testDestPathZIP = path.resolve(__dirname, 'test.destpath.zip');
     const testUNCOMPRESSEDZIP = path.resolve(__dirname, 'testUNCOMPRESSED.zip');
     const testMEDIUMZIP = path.resolve(__dirname, 'testMEDIUM.zip');
     const testSMALLZIP = path.resolve(__dirname, 'testSMALL.zip');
@@ -83,6 +84,12 @@ describe('Zip-A-Folder Test', function () {
         await zip(path.resolve(__dirname, 'data/'), testZIP);
 
         expect(fs.existsSync(testZIP)).toBe(true);
+    });
+
+    it('ZIP test folder with destination folder structure', async () => {
+        await zip(path.resolve(__dirname, 'data/'), testDestPathZIP, {destPath: 'data/'});
+
+        expect(fs.existsSync(testDestPathZIP)).toBe(true);
     });
 
     it('ZIP test folder failing', async () => {

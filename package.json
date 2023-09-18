@@ -1,6 +1,6 @@
 {
   "name": "zip-a-folder",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Zip/Tar a complete folder or a glob list into a zip/tgz file",
   "author": "Marius Augenstein",
   "license": "MIT",

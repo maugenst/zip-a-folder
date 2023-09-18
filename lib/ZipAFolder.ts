@@ -19,6 +19,7 @@ export enum COMPRESSION_LEVEL {
 export type ZipAFolderOptions = {
     compression?: COMPRESSION_LEVEL;
     customWriteStream?: WriteStream;
+    destPath?: string;
 };
 
 export class ZipAFolder {
@@ -160,7 +161,7 @@ export class ZipAFolder {
                     });
                 }
             } else {
-                zipArchive.directory(src, false);
+                zipArchive.directory(src, zipAFolderOptions?.destPath || false);
             }
             zipArchive.finalize();
         });

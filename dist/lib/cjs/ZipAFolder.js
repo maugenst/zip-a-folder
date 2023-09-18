@@ -486,7 +486,7 @@ var ZipAFolder = /*#__PURE__*/ function() {
                                     2,
                                     new Promise(function() {
                                         var _ref = _async_to_generator(function(resolve, reject) {
-                                            var _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, file, content, err;
+                                            var _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, file, content, err, _zipAFolderOptions;
                                             return _ts_generator(this, function(_state) {
                                                 switch(_state.label){
                                                     case 0:
@@ -562,7 +562,7 @@ var ZipAFolder = /*#__PURE__*/ function() {
                                                             10
                                                         ];
                                                     case 9:
-                                                        zipArchive.directory(src, false);
+                                                        zipArchive.directory(src, ((_zipAFolderOptions = zipAFolderOptions) === null || _zipAFolderOptions === void 0 ? void 0 : _zipAFolderOptions.destPath) || false);
                                                         _state.label = 10;
                                                     case 10:
                                                         zipArchive.finalize();

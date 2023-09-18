@@ -120,7 +120,7 @@ export class ZipAFolder {
                     });
                 }
             } else {
-                zipArchive.directory(src, false);
+                zipArchive.directory(src, zipAFolderOptions?.destPath || false);
             }
             zipArchive.finalize();
         });
