@@ -1,6 +1,6 @@
 {
   "name": "zip-a-folder",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "Zip/Tar a complete folder or a glob list into a zip/tgz file",
   "author": "Marius Augenstein",
   "license": "MIT",
@@ -8,8 +8,8 @@
     "url": "https://github.com/maugenst/zip-a-folder/issues"
   },
   "homepage": "https://github.com/maugenst/zip-a-folder#readme",
-  "main": "dist/lib/cjs/index.js",
-  "module": "dist/lib/mjs/index.mjs",
+  "main": "dist/lib/cjs/ZipAFolder.js",
+  "module": "dist/lib/mjs/ZipAFolder.js",
   "typings": "lib/ZipAFolder.ts",
   "files": [
     "README.md",
@@ -17,8 +17,8 @@
     "dist"
   ],
   "exports": {
-    "import": "./dist/lib/mjs/index.mjs",
-    "require": "./dist/lib/cjs/index.js"
+    "import": "./dist/lib/mjs/ZipAFolder.js",
+    "require": "./dist/lib/cjs/ZipAFolder.js"
   },
   "scripts": {
     "clean": "rimraf dist/",
