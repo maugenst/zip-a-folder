@@ -4,7 +4,9 @@
     "testRegex": "test/tests-.+\\.ts",
     "testPathIgnorePatterns": ["/.+tests-.+\\.d\\.ts"],
     "transform": {
-        "^.+\\.(ts|tsx)$": "@swc/jest"
+        "^.+\\.(ts|tsx)$": ["ts-jest", {
+            "diagnostics": false
+        }]
     },
     "extensionsToTreatAsEsm": [".ts", ".tsx"],
     "rootDir": "./",

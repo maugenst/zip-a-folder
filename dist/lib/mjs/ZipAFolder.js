@@ -5,30 +5,20 @@ import fs from 'fs';
 import isGlob from 'is-glob';
 import { glob } from 'glob';
 export var COMPRESSION_LEVEL;
-(function(COMPRESSION_LEVEL) {
+(function (COMPRESSION_LEVEL) {
     COMPRESSION_LEVEL[COMPRESSION_LEVEL["uncompressed"] = 0] = "uncompressed";
     COMPRESSION_LEVEL[COMPRESSION_LEVEL["medium"] = 5] = "medium";
     COMPRESSION_LEVEL[COMPRESSION_LEVEL["high"] = 9] = "high";
 })(COMPRESSION_LEVEL || (COMPRESSION_LEVEL = {}));
 export class ZipAFolder {
-    /**
-     * Tars a given folder or a glob into a gzipped tar archive.
-     * If no zipAFolderOptions are passed in, the default compression level is high.
-     * @param src can be a string path or a glob
-     * @param tarFilePath path to the zip file
-     * @param zipAFolderOptions
-     */ static async tar(src, tarFilePath, zipAFolderOptions) {
+    static async tar(src, tarFilePath, zipAFolderOptions) {
         const o = zipAFolderOptions || {
-            compression: COMPRESSION_LEVEL.high
+            compression: COMPRESSION_LEVEL.high,
         };
         if (o.compression === COMPRESSION_LEVEL.uncompressed) {
-            await ZipAFolder.compress({
-                src,
-                targetFilePath: tarFilePath,
-                format: 'tar',
-                zipAFolderOptions
-            });
-        } else {
+            await ZipAFolder.compress({ src, targetFilePath: tarFilePath, format: 'tar', zipAFolderOptions });
+        }
+        else {
             await ZipAFolder.compress({
                 src,
                 targetFilePath: tarFilePath,
@@ -37,21 +27,15 @@ export class ZipAFolder {
                 archiverOptions: {
                     gzip: true,
                     gzipOptions: {
-                        level: o.compression
-                    }
-                }
+                        level: o.compression,
+                    },
+                },
             });
         }
     }
-    /**
-     * Zips a given folder or a glob into a zip archive.
-     * If no zipAFolderOptions are passed in, the default compression level is high.
-     * @param src can be a string path or a glob
-     * @param zipFilePath path to the zip file
-     * @param zipAFolderOptions
-     */ static async zip(src, zipFilePath, zipAFolderOptions) {
+    static async zip(src, zipFilePath, zipAFolderOptions) {
         const o = zipAFolderOptions || {
-            compression: COMPRESSION_LEVEL.high
+            compression: COMPRESSION_LEVEL.high,
         };
         if (o.compression === COMPRESSION_LEVEL.uncompressed) {
             await ZipAFolder.compress({
@@ -60,10 +44,11 @@ export class ZipAFolder {
                 format: 'zip',
                 zipAFolderOptions,
                 archiverOptions: {
-                    store: true
-                }
+                    store: true,
+                },
             });
-        } else {
+        }
+        else {
             await ZipAFolder.compress({
                 src,
                 targetFilePath: zipFilePath,
@@ -71,13 +56,13 @@ export class ZipAFolder {
                 zipAFolderOptions,
                 archiverOptions: {
                     zlib: {
-                        level: o.compression
-                    }
-                }
+                        level: o.compression,
+                    },
+                },
             });
         }
     }
-    static async compress({ src, targetFilePath, format, zipAFolderOptions, archiverOptions }) {
+    static async compress({ src, targetFilePath, format, zipAFolderOptions, archiverOptions, }) {
         let output;
         const globList = [];
         if (!zipAFolderOptions?.customWriteStream && targetFilePath) {
@@ -87,39 +72,43 @@ export class ZipAFolder {
             }
             try {
                 if (!isGlob(src)) {
-                    await fs.promises.access(src, fs.constants.R_OK); //eslint-disable-line no-bitwise
+                    await fs.promises.access(src, fs.constants.R_OK);
                 }
-                await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK); //eslint-disable-line no-bitwise
-            } catch (e) {
+                await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK);
+            }
+            catch (e) {
                 throw new Error(`Permission error: ${e.message}`);
             }
             if (isGlob(src)) {
-                for (const globPart of src.split(',')){
-                    globList.push(...await glob(globPart.trim()));
+                for (const globPart of src.split(',')) {
+                    globList.push(...(await glob(globPart.trim())));
                 }
                 if (globList.length === 0) {
                     throw new Error(`No glob match found for "${src}".`);
                 }
             }
             output = fs.createWriteStream(targetFilePath);
-        } else if (zipAFolderOptions && zipAFolderOptions.customWriteStream) {
+        }
+        else if (zipAFolderOptions && zipAFolderOptions.customWriteStream) {
             output = zipAFolderOptions?.customWriteStream;
-        } else {
+        }
+        else {
             throw new Error('You must either provide a target file path or a custom write stream to write to.');
         }
         const zipArchive = archiver(format, archiverOptions || {});
-        return new Promise(async (resolve, reject)=>{
+        return new Promise(async (resolve, reject) => {
             output.on('close', resolve);
             output.on('error', reject);
             zipArchive.pipe(output);
             if (isGlob(src)) {
-                for (const file of globList){
+                for (const file of globList) {
                     const content = await fs.promises.readFile(file);
                     zipArchive.append(content, {
-                        name: file
+                        name: file,
                     });
                 }
-            } else {
+            }
+            else {
                 zipArchive.directory(src, zipAFolderOptions?.destPath || false);
             }
             zipArchive.finalize();
@@ -128,5 +117,4 @@ export class ZipAFolder {
 }
 export const zip = ZipAFolder.zip;
 export const tar = ZipAFolder.tar;
-
 //# sourceMappingURL=ZipAFolder.js.map

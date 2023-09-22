@@ -2,10 +2,8 @@
   "compilerOptions": {
     "outDir": "./dist",
     "typeRoots": ["./node_modules/@types", "./@types"],
-    "module": "commonjs",
     "moduleResolution": "node",
     "incremental": true,
-    "target": "es2022",
     "sourceMap": true,
     "declaration": true,
     "experimentalDecorators": true,
@@ -16,13 +14,14 @@
     "noUnusedParameters": true,
     "strictPropertyInitialization": false,
     "newLine": "LF",
+    "noImplicitAny": false,
     "strict": true,
     "importHelpers": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "esModuleInterop": false
+    "esModuleInterop": true
   },
   "exclude": [
     "node_modules",

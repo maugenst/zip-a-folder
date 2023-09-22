@@ -131,6 +131,7 @@ export class ZipAFolder {
 
             if (isGlob(src)) {
                 for (const globPart of src.split(',')) {
+                    // @ts-ignore
                     globList.push(...(await glob(globPart.trim())));
                 }
                 if (globList.length === 0) {
