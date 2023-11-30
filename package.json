@@ -22,6 +22,7 @@
     "@typings"
   ],
   "exports": {
+    "types": "./@typings/ZipAFolder.d.ts",
     "import": "./dist/lib/mjs/ZipAFolder.js",
     "require": "./dist/lib/cjs/ZipAFolder.js"
   },
