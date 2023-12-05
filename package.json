@@ -1,6 +1,6 @@
 {
   "name": "zip-a-folder",
-  "version": "3.1.4",
+  "version": "3.1.5",
   "description": "Zip/Tar a complete folder or a glob list into a zip/tgz file",
   "author": "Marius Augenstein",
   "license": "MIT",
@@ -47,34 +47,34 @@
     "promise"
   ],
   "devDependencies": {
-    "@types/archiver": "^5.3.2",
+    "@types/archiver": "^6.0.2",
     "@types/glob": "^8.1.0",
-    "@types/is-glob": "^4.0.2",
-    "@types/jest": "^29.5.4",
-    "@types/node": "^20.6.0",
+    "@types/is-glob": "^4.0.4",
+    "@types/jest": "^29.5.10",
+    "@types/node": "^20.10.3",
     "@types/rimraf": "^3.0.2",
-    "@typescript-eslint/eslint-plugin": "^6.7.0",
-    "@typescript-eslint/parser": "^6.7.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.2",
+    "@typescript-eslint/parser": "^6.13.2",
     "chokidar": "^3.5.3",
     "coveralls": "^3.1.1",
-    "eslint": "^8.49.0",
+    "eslint": "^8.55.0",
     "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-config-prettier": "^9.0.0",
-    "eslint-plugin-import": "^2.28.1",
-    "eslint-plugin-jest": "^27.2.3",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.0",
+    "eslint-plugin-jest": "^27.6.0",
     "eslint-plugin-prefer-arrow": "^1.2.3",
-    "eslint-plugin-prettier": "^5.0.0",
+    "eslint-plugin-prettier": "^5.0.1",
     "jest": "^29.7.0",
-    "jest-extended": "^4.0.1",
+    "jest-extended": "^4.0.2",
     "npm-run-all": "^4.1.5",
-    "prettier": "^3.0.3",
-    "rimraf": "^5.0.1",
+    "prettier": "^3.1.0",
+    "rimraf": "^5.0.5",
     "ts-jest": "^29.1.1",
-    "typescript": "5.2"
+    "typescript": "5.3"
   },
   "dependencies": {
     "archiver": "^6.0.1",
-    "glob": "^10.3.4",
+    "glob": "^10.3.10",
     "is-glob": "^4.0.3"
   }
 }
