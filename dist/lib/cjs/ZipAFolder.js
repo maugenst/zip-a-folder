@@ -2,9 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.tar = exports.zip = exports.ZipAFolder = exports.COMPRESSION_LEVEL = void 0;
 const tslib_1 = require("tslib");
+const fs_1 = require("fs");
 const path_1 = tslib_1.__importDefault(require("path"));
 const archiver_1 = tslib_1.__importDefault(require("archiver"));
-const fs_1 = tslib_1.__importDefault(require("fs"));
+const promises_1 = tslib_1.__importDefault(require("fs/promises"));
 const is_glob_1 = tslib_1.__importDefault(require("is-glob"));
 const glob_1 = require("glob");
 var COMPRESSION_LEVEL;
@@ -80,9 +81,9 @@ class ZipAFolder {
                 }
                 try {
                     if (!(0, is_glob_1.default)(src)) {
-                        yield fs_1.default.promises.access(src, fs_1.default.constants.R_OK);
+                        yield promises_1.default.access(src, promises_1.default.constants.R_OK);
                     }
-                    yield fs_1.default.promises.access(targetBasePath, fs_1.default.constants.R_OK | fs_1.default.constants.W_OK);
+                    yield promises_1.default.access(targetBasePath, promises_1.default.constants.R_OK | promises_1.default.constants.W_OK);
                 }
                 catch (e) {
                     throw new Error(`Permission error: ${e.message}`);
@@ -95,10 +96,10 @@ class ZipAFolder {
                         throw new Error(`No glob match found for "${src}".`);
                     }
                 }
-                output = fs_1.default.createWriteStream(targetFilePath);
+                output = (0, fs_1.createWriteStream)(targetFilePath);
             }
             else if (zipAFolderOptions && zipAFolderOptions.customWriteStream) {
-                output = zipAFolderOptions === null || zipAFolderOptions === void 0 ? void 0 : zipAFolderOptions.customWriteStream;
+                output = zipAFolderOptions.customWriteStream;
             }
             else {
                 throw new Error('You must either provide a target file path or a custom write stream to write to.');
@@ -110,10 +111,12 @@ class ZipAFolder {
                 zipArchive.pipe(output);
                 if ((0, is_glob_1.default)(src)) {
                     for (const file of globList) {
-                        const content = yield fs_1.default.promises.readFile(file);
-                        zipArchive.append(content, {
-                            name: file,
-                        });
+                        if ((yield promises_1.default.lstat(file)).isFile()) {
+                            const content = yield promises_1.default.readFile(file);
+                            zipArchive.append(content, {
+                                name: file,
+                            });
+                        }
                     }
                 }
                 else {

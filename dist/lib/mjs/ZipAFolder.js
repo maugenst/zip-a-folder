@@ -1,7 +1,8 @@
 'use strict';
+import { createWriteStream } from 'fs';
 import path from 'path';
 import archiver from 'archiver';
-import fs from 'fs';
+import fs from 'fs/promises';
 import isGlob from 'is-glob';
 import { glob } from 'glob';
 export var COMPRESSION_LEVEL;
@@ -72,9 +73,9 @@ export class ZipAFolder {
             }
             try {
                 if (!isGlob(src)) {
-                    await fs.promises.access(src, fs.constants.R_OK);
+                    await fs.access(src, fs.constants.R_OK);
                 }
-                await fs.promises.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK);
+                await fs.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK);
             }
             catch (e) {
                 throw new Error(`Permission error: ${e.message}`);
@@ -87,10 +88,10 @@ export class ZipAFolder {
                     throw new Error(`No glob match found for "${src}".`);
                 }
             }
-            output = fs.createWriteStream(targetFilePath);
+            output = createWriteStream(targetFilePath);
         }
         else if (zipAFolderOptions && zipAFolderOptions.customWriteStream) {
-            output = zipAFolderOptions?.customWriteStream;
+            output = zipAFolderOptions.customWriteStream;
         }
         else {
             throw new Error('You must either provide a target file path or a custom write stream to write to.');
@@ -102,10 +103,12 @@ export class ZipAFolder {
             zipArchive.pipe(output);
             if (isGlob(src)) {
                 for (const file of globList) {
-                    const content = await fs.promises.readFile(file);
-                    zipArchive.append(content, {
-                        name: file,
-                    });
+                    if ((await fs.lstat(file)).isFile()) {
+                        const content = await fs.readFile(file);
+                        zipArchive.append(content, {
+                            name: file,
+                        });
+                    }
                 }
             }
             else {
