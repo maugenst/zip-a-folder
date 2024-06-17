@@ -5,6 +5,7 @@ import archiver from 'archiver';
 import fs from 'fs/promises';
 import isGlob from 'is-glob';
 import {glob} from 'glob';
+import {Stats} from 'node:fs';
 
 export enum COMPRESSION_LEVEL {
     uncompressed = 0,
@@ -157,7 +158,7 @@ export class ZipAFolder {
 
             if (isGlob(src)) {
                 for (const file of globList) {
-                    if ((await fs.lstat(file)).isFile()) {
+                    if (((await fs.lstat(file)) as Stats).isFile()) {
                         const content = await fs.readFile(file);
                         zipArchive.append(content, {
                             name: file,
@@ -167,7 +168,7 @@ export class ZipAFolder {
             } else {
                 zipArchive.directory(src, zipAFolderOptions?.destPath || false);
             }
-            zipArchive.finalize();
+            await zipArchive.finalize();
         });
     }
 }

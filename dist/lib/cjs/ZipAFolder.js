@@ -122,7 +122,7 @@ class ZipAFolder {
                 else {
                     zipArchive.directory(src, (zipAFolderOptions === null || zipAFolderOptions === void 0 ? void 0 : zipAFolderOptions.destPath) || false);
                 }
-                zipArchive.finalize();
+                yield zipArchive.finalize();
             }));
         });
     }
