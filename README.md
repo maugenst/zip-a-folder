@@ -2,7 +2,7 @@
 
 [![CircleCI](https://circleci.com/gh/maugenst/zip-a-folder.svg?style=shield&downloads=true&downloadRank=true&stars=true)](https://circleci.com/gh/maugenst/zip-a-folder)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/df3f742eabe741029c221fd602407d0f)](https://app.codacy.com/gh/maugenst/zip-a-folder/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
-[![Codacy Badge](https://app.codacy.com/project/badge/Coverage/9e26dee5b7774ceea1b3f01dcaa51c41)](https://app.codacy.com/gh/maugenst/tabletojson/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_coverage)
+[![Codacy Badge](https://app.codacy.com/project/badge/Coverage/df3f742eabe741029c221fd602407d0f)](https://app.codacy.com/gh/maugenst/zip-a-folder/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_coverage)
 [![Known Vulnerabilities](https://snyk.io/test/github/maugenst/zip-a-folder/badge.svg)](https://snyk.io/test/github/maugenst/zip-a-folder)
 
 # zip-a-folder
