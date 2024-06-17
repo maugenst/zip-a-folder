@@ -1,3 +1,4 @@
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/5ae191ae87574b6989eec002e4f90b94)](https://app.codacy.com/gh/maugenst/zip-a-folder?utm_source=github.com&utm_medium=referral&utm_content=maugenst/zip-a-folder&utm_campaign=Badge_Grade)
 [![NPM](https://nodei.co/npm/zip-a-folder.png)](https://nodei.co/npm/zip-a-folder/)
 
 [![CircleCI](https://circleci.com/gh/maugenst/zip-a-folder.svg?style=shield&downloads=true&downloadRank=true&stars=true)](https://circleci.com/gh/maugenst/zip-a-folder)
