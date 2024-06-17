@@ -70,8 +70,8 @@ class ZipAFolder {
             }
         });
     }
-    static compress({ src, targetFilePath, format, zipAFolderOptions, archiverOptions, }) {
-        return tslib_1.__awaiter(this, void 0, void 0, function* () {
+    static compress(_a) {
+        return tslib_1.__awaiter(this, arguments, void 0, function* ({ src, targetFilePath, format, zipAFolderOptions, archiverOptions, }) {
             let output;
             const globList = [];
             if (!(zipAFolderOptions === null || zipAFolderOptions === void 0 ? void 0 : zipAFolderOptions.customWriteStream) && targetFilePath) {
