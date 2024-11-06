@@ -1,16 +1,15 @@
 {
     "testEnvironment": "node",
-    "setupFilesAfterEnv": ["jest-extended"],
-    "testRegex": "test/tests-.+\\.ts",
-    "testPathIgnorePatterns": ["/.+tests-.+\\.d\\.ts"],
+    "setupFilesAfterEnv": ["jest-extended/all"],
     "transform": {
-        "^.+\\.(ts|tsx)$": ["ts-jest", {
-            "diagnostics": false
-        }]
+        "^.+\\.(ts|tsx)$": ["@swc/jest"]
     },
     "extensionsToTreatAsEsm": [".ts", ".tsx"],
-    "rootDir": "./",
+    "testRegex": "test/tests-.+\\.ts",
+    "testPathIgnorePatterns": ["/.+tests-.+\\.d\\.ts"],
     "forceExit": true,
     "silent": true,
-    "testTimeout": 3000000
+    "bail": true,
+    "testTimeout": 3000000,
+    "rootDir": "./"
 }

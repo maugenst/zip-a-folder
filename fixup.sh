@@ -13,4 +13,4 @@ cat >dist/lib/mjs/package.json <<!EOF
 }
 !EOF
 mv dist/lib/mjs/ZipAFolder.d.ts @typings
-prettier -w @typings/ZipAFolder.d.ts
+npx @biomejs/biome lint ./@typings --write
