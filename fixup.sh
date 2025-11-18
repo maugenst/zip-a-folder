@@ -5,7 +5,9 @@ cat >dist/lib/cjs/package.json <<!EOF
     "type": "commonjs"
 }
 !EOF
-mv dist/lib/cjs/ZipAFolder.d.ts @typings
+cd dist
+find . -name "*.d.ts" -type f -exec cp {} ../@typings/ \;
+cd ..
 
 cat >dist/lib/mjs/package.json <<!EOF
 {

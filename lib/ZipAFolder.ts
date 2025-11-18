@@ -1,177 +1,300 @@
-'use strict';
-import {WriteStream, createWriteStream} from 'fs';
-import path from 'path';
-import archiver from 'archiver';
-import fs from 'fs/promises';
-import isGlob from 'is-glob';
-import {glob} from 'glob';
-import {Stats} from 'node:fs';
+// src/ZipAFolder.ts
+import * as fs from 'fs';
+import * as path from 'path';
+import * as zlib from 'zlib';
 
-export enum COMPRESSION_LEVEL {
-    uncompressed = 0,
-    medium = 5,
-    high = 9,
-}
+import {COMPRESSION_LEVEL, FileEntry, TarArchiveOptions, ZipArchiveOptions} from './core/types';
+import {collectEntriesFromDirectory, collectGlobEntries} from './core/FileCollector';
+import {looksLikeGlob} from './core/utils';
+import {NativeZip} from './zip/NativeZip';
+import {NativeTar} from './tar/NativeTar';
+
+export {COMPRESSION_LEVEL} from './core/types';
 
 /**
- * Options to pass in to zip a folder
- * compression default is 'high'
+ * High-level facade class that provides ZIP/TAR creation helpers.
+ *
+ * Public API expected by tests:
+ *  - ZipAFolder.zip(...)
+ *  - ZipAFolder.tar(...)
+ *  - zip(...)
+ *  - tar(...)
  */
-export type ZipAFolderOptions = {
-    compression?: COMPRESSION_LEVEL;
-    customWriteStream?: WriteStream;
-    destPath?: string;
-};
-
 export class ZipAFolder {
     /**
-     * Tars a given folder or a glob into a gzipped tar archive.
-     * If no zipAFolderOptions are passed in, the default compression level is high.
-     * @param src can be a string path or a glob
-     * @param tarFilePath path to the zip file
-     * @param zipAFolderOptions
+     * Create a ZIP archive from a directory or glob.
+     *
+     * @param source         Directory path OR glob pattern.
+     * @param targetFilePath Path to target zip file. May be empty/undefined if customWriteStream is provided.
+     * @param options        ZIP options.
      */
-    static async tar(
-        src: string,
-        tarFilePath: string | undefined,
-        zipAFolderOptions?: ZipAFolderOptions,
-    ): Promise<void | Error> {
-        const o: ZipAFolderOptions = zipAFolderOptions || {
-            compression: COMPRESSION_LEVEL.high,
-        };
+    public static async zip(source: string, targetFilePath?: string, options: ZipArchiveOptions = {}): Promise<void> {
+        const customWS = options.customWriteStream;
+        const hasTargetPath = !!(targetFilePath && targetFilePath.length > 0);
 
-        if (o.compression === COMPRESSION_LEVEL.uncompressed) {
-            await ZipAFolder.compress({src, targetFilePath: tarFilePath, format: 'tar', zipAFolderOptions});
-        } else {
-            await ZipAFolder.compress({
-                src,
-                targetFilePath: tarFilePath,
-                format: 'tar',
-                zipAFolderOptions,
-                archiverOptions: {
-                    gzip: true,
-                    gzipOptions: {
-                        level: o.compression,
-                    },
-                },
-            });
-        }
-    }
-
-    /**
-     * Zips a given folder or a glob into a zip archive.
-     * If no zipAFolderOptions are passed in, the default compression level is high.
-     * @param src can be a string path or a glob
-     * @param zipFilePath path to the zip file
-     * @param zipAFolderOptions
-     */
-    static async zip(
-        src: string,
-        zipFilePath: string | undefined,
-        zipAFolderOptions?: ZipAFolderOptions,
-    ): Promise<void | Error> {
-        const o: ZipAFolderOptions = zipAFolderOptions || {
-            compression: COMPRESSION_LEVEL.high,
-        };
-
-        if (o.compression === COMPRESSION_LEVEL.uncompressed) {
-            await ZipAFolder.compress({
-                src,
-                targetFilePath: zipFilePath,
-                format: 'zip',
-                zipAFolderOptions,
-                archiverOptions: {
-                    store: true,
-                },
-            });
-        } else {
-            await ZipAFolder.compress({
-                src,
-                targetFilePath: zipFilePath,
-                format: 'zip',
-                zipAFolderOptions,
-                archiverOptions: {
-                    zlib: {
-                        level: o.compression,
-                    },
-                },
-            });
-        }
-    }
-
-    private static async compress({
-        src,
-        targetFilePath,
-        format,
-        zipAFolderOptions,
-        archiverOptions,
-    }: {
-        src: string;
-        targetFilePath?: string;
-        format: archiver.Format;
-        zipAFolderOptions?: ZipAFolderOptions;
-        archiverOptions?: archiver.ArchiverOptions;
-    }): Promise<void | Error> {
-        let output: WriteStream;
-        const globList: string[] = [];
-
-        if (!zipAFolderOptions?.customWriteStream && targetFilePath) {
-            const targetBasePath: string = path.dirname(targetFilePath);
-
-            if (targetBasePath === src) {
-                throw new Error('Source and target folder must be different.');
-            }
-
-            try {
-                if (!isGlob(src)) {
-                    await fs.access(src, fs.constants.R_OK); //eslint-disable-line no-bitwise
-                }
-                await fs.access(targetBasePath, fs.constants.R_OK | fs.constants.W_OK); //eslint-disable-line no-bitwise
-            } catch (e: any) {
-                throw new Error(`Permission error: ${e.message}`);
-            }
-
-            if (isGlob(src)) {
-                for (const globPart of src.split(',')) {
-                    // @ts-ignore
-                    globList.push(...(await glob(globPart.trim())));
-                }
-                if (globList.length === 0) {
-                    throw new Error(`No glob match found for "${src}".`);
-                }
-            }
-
-            output = createWriteStream(targetFilePath);
-        } else if (zipAFolderOptions && zipAFolderOptions.customWriteStream) {
-            output = zipAFolderOptions.customWriteStream;
-        } else {
+        if (!hasTargetPath && !customWS) {
             throw new Error('You must either provide a target file path or a custom write stream to write to.');
         }
 
-        const zipArchive: archiver.Archiver = archiver(format, archiverOptions || {});
+        const statConcurrency = options.statConcurrency ?? 4;
 
-        return new Promise(async (resolve, reject) => {
-            output.on('close', resolve);
-            output.on('error', reject);
+        // Resolve compression/store/zlib mapping.
+        const zipStore = options.store === true || options.compression === COMPRESSION_LEVEL.uncompressed;
 
-            zipArchive.pipe(output);
+        const zlibOptions: zlib.ZlibOptions | undefined = {
+            ...(options.zlib || {})
+        };
 
-            if (isGlob(src)) {
-                for (const file of globList) {
-                    if (((await fs.lstat(file)) as Stats).isFile()) {
-                        const content = await fs.readFile(file);
-                        zipArchive.append(content, {
-                            name: file,
-                        });
+        if (!zipStore && options.compression !== undefined) {
+            switch (options.compression) {
+                case COMPRESSION_LEVEL.medium:
+                    if (zlibOptions.level === undefined) {
+                        zlibOptions.level = zlib.constants.Z_DEFAULT_COMPRESSION;
                     }
-                }
-            } else {
-                zipArchive.directory(src, zipAFolderOptions?.destPath || false);
+                    break;
+                case COMPRESSION_LEVEL.high:
+                    if (zlibOptions.level === undefined) {
+                        zlibOptions.level = zlib.constants.Z_BEST_COMPRESSION;
+                    }
+                    break;
+                /* istanbul ignore next */
+                default:
+                    // defensive: invalid compression enum
+                    break;
             }
-            await zipArchive.finalize();
+        }
+
+        const zipper = new NativeZip({
+            comment: options.comment,
+            forceLocalTime: options.forceLocalTime,
+            forceZip64: options.forceZip64,
+            namePrependSlash: options.namePrependSlash,
+            store: zipStore,
+            zlib: zlibOptions
+        });
+
+        const cwd = process.cwd();
+        const isGlob = looksLikeGlob(source);
+        let entries: FileEntry[] = [];
+
+        if (isGlob) {
+            // Glob mode: collect files relative to cwd, no directories.
+            entries = await collectGlobEntries(source, cwd, statConcurrency);
+            if (entries.length === 0) {
+                throw new Error('No glob match found');
+            }
+        } else {
+            // Directory mode.
+            const sourceDir = path.resolve(source);
+            const st = await fs.promises.stat(sourceDir); // may throw ENOENT
+            /* istanbul ignore next */
+            if (!st.isDirectory()) {
+                throw new Error('Source must be a directory when no glob pattern is used.');
+            }
+
+            if (hasTargetPath) {
+                const targetAbs = path.resolve(targetFilePath as string);
+                const targetDir = path.dirname(targetAbs);
+                const normalizedSourceDir = path.resolve(sourceDir);
+
+                // Disallow target in the same folder or any subfolder of source
+                if (targetDir === normalizedSourceDir || targetDir.startsWith(normalizedSourceDir + path.sep)) {
+                    throw new Error('Source and target folder must be different.');
+                }
+            }
+
+            entries = await collectEntriesFromDirectory(sourceDir, statConcurrency);
+
+            // Mirror original zip-a-folder behavior: archive paths are
+            // contents of source directory (no root folder), but we optionally
+            // prefix with destPath if provided.
+            if (options.destPath) {
+                const prefix = options.destPath.replace(/\\/g, '/').replace(/\/+$/, '');
+                if (prefix.length > 0) {
+                    entries = entries.map((e) => ({
+                        ...e,
+                        relativePath: prefix + '/' + e.relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+                    }));
+                }
+            }
+        }
+
+        // Apply namePrependSlash: add leading "/" for all entry paths.
+        if (options.namePrependSlash) {
+            entries = entries.map((e) => {
+                /* istanbul ignore next */
+                const rp = e.relativePath.startsWith('/') ? e.relativePath : '/' + e.relativePath;
+                return {...e, relativePath: rp};
+            });
+        }
+
+        // Directories first (for directory-based use).
+        for (const e of entries.filter((x) => x.isDirectory)) {
+            zipper.addDirectoryEntry(e.relativePath, e.stat.mtime);
+        }
+
+        // Files.
+        for (const e of entries.filter((x) => !x.isDirectory)) {
+            await zipper.addFileFromFs(e.fsPath, e.relativePath, e.stat.mtime);
+        }
+
+        if (!customWS && hasTargetPath) {
+            // Fail early if parent directory does not exist
+            const parentDir = path.dirname(path.resolve(targetFilePath as string));
+            await fs.promises.stat(parentDir); // will throw ENOENT if missing
+        }
+
+        const outStream: NodeJS.WritableStream = customWS ?? fs.createWriteStream(targetFilePath as string);
+
+        await zipper.writeToStream(outStream);
+    }
+
+    /**
+     * Create a TAR (optionally gzipped) archive from a directory or glob.
+     *
+     * @param source         Directory path OR glob pattern.
+     * @param targetFilePath Path to target tar/tgz file. May be empty/undefined if customWriteStream is provided.
+     * @param options        TAR/gzip options.
+     */
+    public static async tar(source: string, targetFilePath?: string, options: TarArchiveOptions = {}): Promise<void> {
+        const customWS = options.customWriteStream;
+        const hasTargetPath = !!(targetFilePath && targetFilePath.length > 0);
+
+        if (!hasTargetPath && !customWS) {
+            throw new Error('You must either provide a target file path or a custom write stream to write to.');
+        }
+
+        const statConcurrency = options.statConcurrency ?? 4;
+        const cwd = process.cwd();
+        const isGlob = looksLikeGlob(source);
+        let entries: FileEntry[] = [];
+
+        if (isGlob) {
+            entries = await collectGlobEntries(source, cwd, statConcurrency);
+            /* istanbul ignore next */
+            if (entries.length === 0) {
+                throw new Error('No glob match found');
+            }
+        } else {
+            const sourceDir = path.resolve(source);
+            const st = await fs.promises.stat(sourceDir); // may throw ENOENT
+            /* istanbul ignore next */
+            if (!st.isDirectory()) {
+                throw new Error('Source must be a directory when no glob pattern is used.');
+            }
+
+            if (hasTargetPath) {
+                const targetAbs = path.resolve(targetFilePath as string);
+                const targetDir = path.dirname(targetAbs);
+                const normalizedSourceDir = path.resolve(sourceDir);
+
+                // Disallow target in the same folder or any subfolder of source
+                if (targetDir === normalizedSourceDir || targetDir.startsWith(normalizedSourceDir + path.sep)) {
+                    throw new Error('Source and target folder must be different.');
+                }
+            }
+
+            entries = await collectEntriesFromDirectory(sourceDir, statConcurrency);
+        }
+
+        // Determine gzip settings from options + compression level.
+        let gzipEnabled = options.gzip;
+        if (options.compression === COMPRESSION_LEVEL.uncompressed) {
+            gzipEnabled = false;
+        } else if (gzipEnabled === undefined) {
+            // Default: gzip if not explicitly disabled and not explicitly uncompressed.
+            gzipEnabled = true;
+        }
+
+        const gzipOptions: zlib.ZlibOptions = {...(options.gzipOptions || {})};
+
+        if (gzipEnabled && options.compression !== undefined) {
+            switch (options.compression) {
+                case COMPRESSION_LEVEL.medium:
+                    if (gzipOptions.level === undefined) {
+                        gzipOptions.level = zlib.constants.Z_DEFAULT_COMPRESSION;
+                    }
+                    break;
+                case COMPRESSION_LEVEL.high:
+                    if (gzipOptions.level === undefined) {
+                        gzipOptions.level = zlib.constants.Z_BEST_COMPRESSION;
+                    }
+                    break;
+                /* istanbul ignore next */
+                default:
+                    break;
+            }
+        }
+
+        if (!customWS && hasTargetPath) {
+            const parentDir = path.dirname(path.resolve(targetFilePath as string));
+            await fs.promises.stat(parentDir); // may throw ENOENT
+        }
+
+        const finalOut: fs.WriteStream | NodeJS.WritableStream =
+            customWS ?? fs.createWriteStream(targetFilePath as string);
+
+        let tarDestination: NodeJS.WritableStream;
+
+        if (gzipEnabled) {
+            const gzipStream = zlib.createGzip(gzipOptions);
+            gzipStream.pipe(finalOut);
+            tarDestination = gzipStream;
+        } else {
+            tarDestination = finalOut;
+        }
+
+        const tarWriter = new NativeTar(tarDestination);
+
+        // Directory entries (directory-source only; glob entries are files-only).
+        for (const e of entries.filter((x) => x.isDirectory)) {
+            await tarWriter.addDirectory(e);
+        }
+        // File entries.
+        for (const e of entries.filter((x) => !x.isDirectory)) {
+            await tarWriter.addFile(e);
+        }
+
+        await tarWriter.finalize();
+
+        // Ensure we flush + close output.
+        await new Promise<void>((resolve, reject) => {
+            const finishTargetRaw = gzipEnabled ? finalOut : tarDestination;
+            // Explicitly treat this as a NodeJS-style writable stream.
+            const finishTarget = finishTargetRaw as NodeJS.WritableStream;
+            /* istanbul ignore next */
+            const onError = (err: Error) => {
+                cleanup();
+                reject(err);
+            };
+            const onFinish = () => {
+                cleanup();
+                resolve();
+            };
+            const cleanup = () => {
+                finishTarget.removeListener('error', onError);
+                finishTarget.removeListener('finish', onFinish);
+            };
+
+            finishTarget.once('error', onError);
+            finishTarget.once('finish', onFinish);
+
+            // End the tarDestination (which will flush through gzip if enabled).
+            (tarDestination as any).end?.();
         });
     }
 }
 
-export const zip = ZipAFolder.zip;
-export const tar = ZipAFolder.tar;
+/**
+ * Convenience function: zip(...) directly.
+ */
+export function zip(source: string, targetFilePath?: string, options?: ZipArchiveOptions): Promise<void> {
+    return ZipAFolder.zip(source, targetFilePath, options ?? {});
+}
+
+/**
+ * Convenience function: tar(...) directly.
+ */
+export function tar(source: string, targetFilePath?: string, options?: TarArchiveOptions): Promise<void> {
+    return ZipAFolder.tar(source, targetFilePath, options ?? {});
+}

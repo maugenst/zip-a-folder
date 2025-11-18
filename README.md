@@ -1,151 +1,247 @@
 [![NPM](https://nodei.co/npm/zip-a-folder.png)](https://nodei.co/npm/zip-a-folder/)
 
 [![CircleCI](https://circleci.com/gh/maugenst/zip-a-folder.svg?style=shield&downloads=true&downloadRank=true&stars=true)](https://circleci.com/gh/maugenst/zip-a-folder)
-[![Codacy Badge](https://app.codacy.com/project/badge/Grade/df3f742eabe741029c221fd602407d0f)](https://app.codacy.com/gh/maugenst/zip-a-folder/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
-[![Codacy Badge](https://app.codacy.com/project/badge/Coverage/df3f742eabe741029c221fd602407d0f)](https://app.codacy.com/gh/maugenst/zip-a-folder/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_coverage)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/df3f742eabe741029c221fd602407d0f)](https://app.codacy.com/gh/maugenst/zip-a-folder/dashboard)
+[![Codacy Coverage](https://app.codacy.com/project/badge/Coverage/df3f742eabe741029c221fd602407d0f)](https://app.codacy.com/gh/maugenst/zip-a-folder/dashboard)
 [![Known Vulnerabilities](https://snyk.io/test/github/maugenst/zip-a-folder/badge.svg)](https://snyk.io/test/github/maugenst/zip-a-folder)
 
 # zip-a-folder
-Easy to use zip (or tar) a complete folder or a list of globs plain into a zip/tar/tgz file 
-including compression ratio handling and custom write streams.
+A fast, dependency-free ZIP/TAR/TGZ creation library using **native Node.js compression (zlib)**, supporting:
 
-## incompatible changes
-* Version 2 adds glob lists handling as a src. So please be aware that using globs intentionally breaks up the "create-a-zip/tar-file-from-a-folder" approach.
-* Version 3 adds the possibility to zip-a-folder to be usable either in commonjs or esm module environments.
-* Version 3.1 adds the possibility to specify target folder within a zip file. By default the structure within a zip file doesn't contain the src folder, but the files and folder underneath.  
+- ZIP archives (with optional ZIP64)
+- TAR archives (optionally gzipped)
+- Globs (single or comma-separated)
+- Parallel directory scanning (`statConcurrency`)
+- Custom write streams
+- Compression presets (`high`, `medium`, `uncompressed`)
+- Fine-grained zlib/gzip control
 
-## Basic Usage
+Everything is implemented **natively** without JS zip/tar libraries.
 
-Install via npm
+---
 
-```
+## ⚠️ Incompatible Changes
+
+### Version 2
+Added support for comma-separated glob lists.  
+This may change the behavior for cases previously interpreted as “folder only”.
+
+### Version 3
+Dual-module support (CJS + ESM).
+
+### Version 3.1
+Added support for `destPath` to control the internal path layout of created archives.
+
+### Version 4 (current)
+A major rewrite using:
+- **Fully native ZIP writer** (no dependencies)
+- **Native TAR + gzip writer**
+- **ZIP64 support** for large archives
+- **Parallel statting** (`statConcurrency`)
+- **Strict internal path normalization** mirroring classic zip-a-folder behavior
+- **Native glob handling** via `glob`
+
+---
+
+## 📦 Installation
+
+```bash
 npm install zip-a-folder
-```
+````
 
-### Creating a ZIP file
+---
+
+# 🚀 Usage
+
+## Create a ZIP file
 
 ```js
 import { zip } from 'zip-a-folder';
 
-class TestMe {
-
-    static async main() {
-        await zip('/path/to/the/folder', '/path/to/archive.zip');
-    }
-}
-
-TestMe.main();
+await zip('/path/to/folder', '/path/to/archive.zip');
 ```
 
-### Creating a gzipped TAR file
+## Create a GZIP-compressed TAR file (`.tgz`)
 
 ```js
 import { tar } from 'zip-a-folder';
 
-class TestMe {
-
-    static async main() {
-        await tar('/path/to/the/folder', '/path/to/archive.tgz');
-    }
-}
-
-TestMe.main();
+await tar('/path/to/folder', '/path/to/archive.tgz');
 ```
 
-### Compression handling
+---
 
-For the sake of easy use, supported compression levels are (by now):
-`COMPRESSION_LEVEL.high`, `COMPRESSION_LEVEL.medium` or `COMPRESSION_LEVEL.uncompressed`. 
+# 🎚 Compression Handling
 
-The default compression - level is `high`.
+Supported compression levels:
+
+```ts
+COMPRESSION_LEVEL.high          // highest compression (default)
+COMPRESSION_LEVEL.medium        // balanced
+COMPRESSION_LEVEL.uncompressed  // STORE for zip, no-gzip for tar
+```
+
+Example:
 
 ```js
 import { zip, COMPRESSION_LEVEL } from 'zip-a-folder';
 
-class TestMe {
-
-    static async main() {
-        await zip('/path/to/the/folder', '/path/to/archive.zip', {compression: COMPRESSION_LEVEL.high});
-    }
-}
-
-TestMe.main();
+await zip('/path/to/folder', '/path/to/archive.zip', {
+    compression: COMPRESSION_LEVEL.medium
+});
 ```
-### Custom writeStreams
-You can now pipe output to any WriteStream (just pass WriteStream as a parameter).
 
-To keep the existing api stable the 2nd parameter (targetFilePath) can now be either undefined or 
-an empty string.
+---
 
-ATTENTION: `customWriteStream` is not checked. So it is up to the user to check 
-on non-existing target folders or if the targetfolder equals to the sourcefolder 
-(ending up in circularity).
+# ✨ ZIP Options
+
+| Option              | Type          | Description                          |
+| ------------------- | ------------- | ------------------------------------ |
+| `comment`           | `string`      | ZIP file comment                     |
+| `forceLocalTime`    | `boolean`     | Use local timestamps instead of UTC  |
+| `forceZip64`        | `boolean`     | Always include ZIP64 headers         |
+| `namePrependSlash`  | `boolean`     | Prefix all ZIP entry names with `/`  |
+| `store`             | `boolean`     | Force STORE method (no compression)  |
+| `zlib`              | `ZlibOptions` | Passed directly to `zlib.deflateRaw` |
+| `statConcurrency`   | `number`      | Parallel `stat` workers (default: 4) |
+| `destPath`          | `string`      | Prefix inside the archive (>=3.1)    |
+| `customWriteStream` | `WriteStream` | Manually handle output               |
+
+Example:
 
 ```js
-import { zip, COMPRESSION_LEVEL } from 'zip-a-folder';
-import { fs } from 'fs';
-
-class TestMe {
-    static async main() {
-        const customWS = fs.createWriteStream('test/1234.zip');
-        await zipafolder.zip(path.resolve(__dirname, 'data/'), undefined, {customWriteStream: customWS});    
-    }
-}
-
-TestMe.main();
+await zip('/dir', '/archive.zip', {
+    comment: "Created by zip-a-folder",
+    forceZip64: true,
+    namePrependSlash: true,
+    store: false,
+    statConcurrency: 16,
+    zlib: { level: 9 }
+});
 ```
 
-### Glob handling
+---
 
-The first parameter can be either a path or a glob. Globs are separated by comma.
+# 📦 TAR / TGZ Options
+
+| Option            | Type          | Description                 |
+| ----------------- | ------------- | --------------------------- |
+| `gzip`            | `boolean`     | Enable gzip compression     |
+| `gzipOptions`     | `ZlibOptions` | Passed to `zlib.createGzip` |
+| `statConcurrency` | `number`      | Parallel `stat` workers     |
+
+Example:
 
 ```js
-import {zip} from 'zip-a-folder';
-
-class TestMe {
-
-    static async main() {
-        // zip all json into an archive
-        await zip('**/*.json', '/path/to/archive.zip');
-        // zip all json AND txt files into a second archive
-        await zip('**/*.json, **/*.txt', '/path/to/archive2.zip');
-    }
-}
-
-TestMe.main();
+await tar('/dir', '/archive.tgz', {
+    gzip: true,
+    gzipOptions: { level: 6 }
+});
 ```
 
-### Destination path handling (>=3.1.x)
+---
 
-With passing a destination path to zip-a-folder options object you can define the target folder structure
-within the generated zip.
+# 🔧 Custom Write Streams
+
+ZIP and TAR can be written into **any stream**.
+If `customWriteStream` is used, the `targetFilePath` can be empty or undefined.
 
 ```js
-import {zip} from 'zip-a-folder';
+import fs from 'fs';
+import { zip } from 'zip-a-folder';
 
-class TestMe {
-
-    static async main() {
-        // zip all json into an archive
-        await zip('data/', '/path/to/archive.zip', {destPath: 'data/'});
-    }
-}
-
-TestMe.main();
+const ws = fs.createWriteStream('/tmp/output.zip');
+await zip('/path/to/folder', undefined, { customWriteStream: ws });
 ```
 
-### Tests
+**Important:**
+zip-a-folder does *not* validate custom streams. You must ensure:
 
-Tests can be found in `/test` and run by jest. To run the tests call ``npm test``.
+* parent directory exists
+* you’re not writing into the source directory (to avoid recursion)
 
-## Thanks
+---
 
-* Special thanks to @sole for her initial work.
-* Thanks to YOONBYEONGIN
-* Thanks to Wunschik
-* Thanks to ratbeard
-* Thanks to Xotabu4
-* Thanks to dallenbaldwin
-* Thanks to wiralegawa
-* Thanks to karan-gaur
-* Thanks to malthe 
+# 🔍 Glob Handling
+
+The first parameter may be:
+
+* A path to a directory
+* A single glob
+* A comma-separated list of globs
+
+Example:
+
+```js
+await zip('**/*.json', '/archive.zip');
+await zip('**/*.json, **/*.txt', '/archive2.zip');
+```
+
+If no files match, zip-a-folder throws:
+
+```
+Error: No glob match found
+```
+
+---
+
+# 🗂 Destination Path Handling (`destPath`)
+
+Adds a prefix *inside* the archive:
+
+```js
+await zip('data/', '/archive.zip', { destPath: 'data/' });
+```
+
+Resulting ZIP layout:
+
+```
+data/file1.txt
+data/subdir/file2.txt
+```
+
+---
+
+# 🎯 Native Implementation Notes (New in v4)
+
+* ZIP and TAR are written using **pure Node.js** (`zlib`, raw buffering)
+* ZIP64 support included
+* File system scanning performed with a **parallel stat queue**
+* Globs handled via the standardized **glob** package
+* Archive layout matches the original zip-a-folder for compatibility
+* ZIP writer supports dependency-free deflate and manual header construction
+* TAR writer produces POSIX ustar format with proper 512-byte block alignment
+
+---
+
+# 🧪 Running Tests
+
+Tests are written in **Jest**:
+
+```bash
+npm test
+```
+
+A coverage report is included:
+
+```bash
+npm test -- --coverage
+```
+
+---
+
+# ❤️ Thanks
+
+Special thanks to contributors:
+
+* @sole – initial work
+* @YOONBYEONGIN
+* @Wunschik
+* @ratbeard
+* @Xotabu4
+* @dallenbaldwin
+* @wiralegawa
+* @karan-gaur
+* @malthe
+
+Additional thanks to everyone helping shape the native rewrite.
