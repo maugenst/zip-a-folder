@@ -10,6 +10,8 @@ import {NativeZip} from './zip/NativeZip';
 import {NativeTar} from './tar/NativeTar';
 
 export {COMPRESSION_LEVEL} from './core/types';
+export type {ZipArchiveOptions} from './core/types';
+export type {TarArchiveOptions} from './core/types';
 
 /**
  * High-level facade class that provides ZIP/TAR creation helpers.

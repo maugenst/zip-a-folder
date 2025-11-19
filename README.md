@@ -200,6 +200,31 @@ data/file1.txt
 data/subdir/file2.txt
 ```
 
+## Directory Root Inclusion Semantics
+
+When passing a directory path as the first argument (e.g. `zip('/path/to/folder', '/archive.zip')`), the archive by default contains the *contents* of that directory at the archive root (i.e. you will see the files inside `folder/`, not a top-level `folder/` directory itself).
+
+### Include the directory itself
+If you want the archive to unpack into the named folder (so the top level of the archive contains `folder/`), set `destPath` to that folder name plus a trailing slash:
+
+```ts
+await zip('/path/to/folder', '/archive.zip', {
+  destPath: 'folder/'
+});
+```
+
+Result layout:
+```
+folder/file1.txt
+folder/sub/file2.txt
+```
+
+## Summary
+- Default: directory contents only (no enclosing folder)  
+- To include the folder: use `destPath: '<dirname>/'`
+
+This applies equally to `tar()`.
+
 ---
 
 # 🎯 Native Implementation Notes (New in v4)

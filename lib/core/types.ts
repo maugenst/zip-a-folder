@@ -13,19 +13,19 @@ export enum COMPRESSION_LEVEL {
 /**
  * Basic core options shared by ZIP and TAR archives.
  */
-export interface CoreOptions {
+export type CoreOptions = {
     /**
      * Sets the number of workers used to process the internal fs stat queue.
      * Higher values can speed up scanning of very large directory trees.
      * Default is 4.
      */
     statConcurrency?: number;
-}
+};
 
 /**
  * Options for creating ZIP archives.
  */
-export interface ZipArchiveOptions extends CoreOptions {
+export type ZipArchiveOptions = CoreOptions & {
     /** Sets the zip archive comment. */
     comment?: string;
     /** Forces the archive to contain local file times instead of UTC. */
@@ -62,12 +62,12 @@ export interface ZipArchiveOptions extends CoreOptions {
      *  - medium/high  => DEFLATE with suitable zlib level
      */
     compression?: COMPRESSION_LEVEL;
-}
+};
 
 /**
  * Options for creating TAR (and optionally gzipped) archives.
  */
-export interface TarArchiveOptions extends CoreOptions {
+export type TarArchiveOptions = CoreOptions & {
     /** Compress the tar archive using gzip. */
     gzip?: boolean;
     /** Passed to zlib to control gzip compression. */
@@ -78,12 +78,12 @@ export interface TarArchiveOptions extends CoreOptions {
 
     /** Convenience compression level, mapped onto gzip level. */
     compression?: COMPRESSION_LEVEL;
-}
+};
 
 /**
  * Internal representation of a filesystem entry used by ZIP/TAR builders.
  */
-export interface FileEntry {
+export type FileEntry = {
     /** Absolute filesystem path. */
     fsPath: string;
     /** Path inside the archive (POSIX style, forward slashes). */
@@ -92,4 +92,4 @@ export interface FileEntry {
     isDirectory: boolean;
     /** Node.js fs Stats object for this entry. */
     stat: fs.Stats;
-}
+};

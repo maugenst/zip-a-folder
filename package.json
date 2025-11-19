@@ -1,6 +1,6 @@
 {
     "name": "zip-a-folder",
-    "version": "4.0.0",
+    "version": "4.0.4",
     "description": "Zip/Tar a complete folder or a glob list into a zip/tgz file",
     "author": "Marius Augenstein",
     "license": "MIT",
@@ -8,23 +8,14 @@
         "url": "https://github.com/maugenst/zip-a-folder/issues"
     },
     "homepage": "https://github.com/maugenst/zip-a-folder#readme",
-    "main": "dist/lib/cjs/ZipAFolder.js",
-    "module": "dist/lib/mjs/ZipAFolder.js",
-    "typings": "@typings/ZipAFolder.d.ts",
-    "typeRoots": [
-        "./@typings",
-        "./node_modules/@types/"
-    ],
-    "files": [
-        "README.md",
-        "lib",
-        "dist",
-        "@typings"
-    ],
+    "main": "dist/ZipAFolder.cjs",
+    "module": "dist/ZipAFolder.mjs",
+    "types": "dist/ZipAFolder.d.mts",
+    "files": ["README.md", "dist"],
     "exports": {
-        "types": "./@typings/ZipAFolder.d.ts",
-        "import": "./dist/lib/mjs/ZipAFolder.js",
-        "require": "./dist/lib/cjs/ZipAFolder.js"
+        "types": "./dist/ZipAFolder.d.mts",
+        "import": "./dist/ZipAFolder.mjs",
+        "require": "./dist/ZipAFolder.cjs"
     },
     "scripts": {
         "all": "run-s clean:all ci build test",
@@ -32,10 +23,7 @@
         "clean": "rimraf dist/ && mkdir dist",
         "clean:all": "rimraf node_modules dist/ && mkdir dist",
         "test": "jest --coverage --",
-        "build": "run-s clean lint build:mjs build:cjs fixup",
-        "build:cjs": "tsc -p tsconfig-cjs.json",
-        "build:mjs": "tsc -p tsconfig-mjs.json",
-        "build:dev": "tsc -p tsconfig-mjs.json --watch",
+        "build": "tsdown",
         "fixup": "./fixup.sh",
         "lint": "npx @biomejs/biome lint ./lib ./test --write"
     },
@@ -43,14 +31,7 @@
         "type": "git",
         "url": "git+https://github.com/maugenst/zip-a-folder.git"
     },
-    "keywords": [
-        "zip",
-        "gzip",
-        "tar",
-        "folder",
-        "async",
-        "promise"
-    ],
+    "keywords": ["zip", "gzip", "tar", "folder", "async", "promise"],
     "devDependencies": {
         "@biomejs/biome": "2.3.6",
         "@swc/core": "^1.15.2",
@@ -62,7 +43,11 @@
         "npm-run-all": "^4.1.5",
         "rimraf": "^6.1.0",
         "ts-jest": "^29.4.5",
+        "tsdown": "^0.16.5",
         "tslib": "^2.8.1",
         "typescript": "5.9"
+    },
+    "dependencies": {
+        "glob": "^12.0.0"
     }
 }
