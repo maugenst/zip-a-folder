@@ -1,6 +1,6 @@
 {
     "name": "zip-a-folder",
-    "version": "4.0.4",
+    "version": "4.1.0",
     "description": "Zip/Tar a complete folder or a glob list into a zip/tgz file",
     "author": "Marius Augenstein",
     "license": "MIT",
@@ -11,7 +11,10 @@
     "main": "dist/ZipAFolder.cjs",
     "module": "dist/ZipAFolder.mjs",
     "types": "dist/ZipAFolder.d.mts",
-    "files": ["README.md", "dist"],
+    "files": [
+        "README.md",
+        "dist"
+    ],
     "exports": {
         "types": "./dist/ZipAFolder.d.mts",
         "import": "./dist/ZipAFolder.mjs",
@@ -31,7 +34,14 @@
         "type": "git",
         "url": "git+https://github.com/maugenst/zip-a-folder.git"
     },
-    "keywords": ["zip", "gzip", "tar", "folder", "async", "promise"],
+    "keywords": [
+        "zip",
+        "gzip",
+        "tar",
+        "folder",
+        "async",
+        "promise"
+    ],
     "devDependencies": {
         "@biomejs/biome": "2.3.6",
         "@swc/core": "^1.15.2",

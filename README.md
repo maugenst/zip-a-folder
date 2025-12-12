@@ -239,6 +239,26 @@ This applies equally to `tar()`.
 
 ---
 
+## 🛠️ Unix Permissions Preservation in ZIP (v4.x)
+
+A recent contribution restored correct handling of file modes for Unix systems inside ZIP archives:
+
+- The "Version Made By" field is now set to Unix (upper byte = 3) in the Central Directory.
+- File modes from `fs.stat().mode` are passed through to the ZIP entries and preserved.
+- Modes are mapped into the upper 16 bits of the "External File Attributes" field per the ZIP spec.
+
+This brings parity back with v3 behavior and ensures executables and other POSIX permissions are preserved 
+when packaging for Linux/Debian and similar environments.
+
+See PR #66: https://github.com/maugenst/zip-a-folder/pull/66
+
+Automated tests were added to validate:
+- Central Directory "Version Made By" upper byte is 3 (Unix).
+- External File Attributes store the POSIX mode (both files and directories), including directory flag.
+- FileCollector behavior and glob handling are fully covered, pushing coverage to 100% lines/functions.
+
+---
+
 # 🧪 Running Tests
 
 Tests are written in **Jest**:
@@ -268,5 +288,6 @@ Special thanks to contributors:
 * @wiralegawa
 * @karan-gaur
 * @malthe
+* @nesvet
 
 Additional thanks to everyone helping shape the native rewrite.
