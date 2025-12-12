@@ -10,6 +10,7 @@ class ZipEntry {
     public name: string;
     public isDirectory: boolean;
     public date: Date;
+    public mode: number;
 
     public crc32: number;
     public compressedSize: number;
@@ -23,6 +24,7 @@ class ZipEntry {
         name: string;
         isDirectory: boolean;
         date: Date;
+        mode: number;
         crc32: number;
         compressedSize: number;
         uncompressedSize: number;
@@ -32,6 +34,7 @@ class ZipEntry {
         this.name = params.name;
         this.isDirectory = params.isDirectory;
         this.date = params.date;
+        this.mode = params.mode;
         this.crc32 = params.crc32;
         this.compressedSize = params.compressedSize;
         this.uncompressedSize = params.uncompressedSize;
@@ -81,8 +84,9 @@ export class NativeZip {
      * Add a directory entry to the ZIP archive.
      * @param archivePath Path inside the archive (with or without trailing "/").
      * @param date        Modification date.
+     * @param mode        File mode (permissions).
      */
-    public addDirectoryEntry(archivePath: string, date: Date): void {
+    public addDirectoryEntry(archivePath: string, date: Date, mode: number): void {
         let name = archivePath.replace(/\\/g, '/');
         /* istanbul ignore next */
         if (!name.endsWith('/')) {
@@ -93,6 +97,7 @@ export class NativeZip {
                 name,
                 isDirectory: true,
                 date,
+                mode,
                 crc32: 0,
                 compressedSize: 0,
                 uncompressedSize: 0,
@@ -107,8 +112,9 @@ export class NativeZip {
      * @param filePath    Physical file path on disk.
      * @param archivePath Path inside the archive.
      * @param date        Modification date.
+     * @param mode        File mode (permissions).
      */
-    public async addFileFromFs(filePath: string, archivePath: string, date: Date): Promise<void> {
+    public async addFileFromFs(filePath: string, archivePath: string, date: Date, mode: number): Promise<void> {
         const name = archivePath.replace(/\\/g, '/');
         const data = await fs.promises.readFile(filePath);
         const sum = crc32(data);
@@ -129,6 +135,7 @@ export class NativeZip {
                 name,
                 isDirectory: false,
                 date,
+                mode,
                 crc32: sum,
                 compressedSize: compressed.length,
                 uncompressedSize: data.length,
@@ -254,8 +261,8 @@ export class NativeZip {
                     // central file header signature
                     centralHeader.writeUInt32LE(0x02014b50, p);
                     p += 4;
-                    // version made by
-                    centralHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
+                    // version made by (Upper byte = 3 for Unix)
+                    centralHeader.writeUInt16LE((3 << 8) | (useZip64 ? 45 : 20), p);
                     p += 2;
                     // version needed to extract
                     centralHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
@@ -325,8 +332,8 @@ export class NativeZip {
                     centralHeader.writeUInt16LE(0, p);
                     p += 2;
                     // external file attributes
-                    const extAttr = entry.isDirectory ? 0x10 : 0x00;
-                    centralHeader.writeUInt32LE(extAttr, p);
+                    const extAttr = (entry.mode << 16) | (entry.isDirectory ? 0x10 : 0x00);
+                    centralHeader.writeUInt32LE(extAttr >>> 0, p);
                     p += 4;
                     // relative offset of local header (may be 0xffffffff when ZIP64)
                     if (centralNeedsZip64Offset) {

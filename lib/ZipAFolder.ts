@@ -132,12 +132,12 @@ export class ZipAFolder {
 
         // Directories first (for directory-based use).
         for (const e of entries.filter((x) => x.isDirectory)) {
-            zipper.addDirectoryEntry(e.relativePath, e.stat.mtime);
+            zipper.addDirectoryEntry(e.relativePath, e.stat.mtime, e.stat.mode);
         }
 
         // Files.
         for (const e of entries.filter((x) => !x.isDirectory)) {
-            await zipper.addFileFromFs(e.fsPath, e.relativePath, e.stat.mtime);
+            await zipper.addFileFromFs(e.fsPath, e.relativePath, e.stat.mtime, e.stat.mode);
         }
 
         if (!customWS && hasTargetPath) {
