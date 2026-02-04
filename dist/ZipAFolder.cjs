@@ -27,7 +27,7 @@ let path = require("path");
 path = __toESM(path);
 let zlib = require("zlib");
 zlib = __toESM(zlib);
-let glob = require("glob");
+let tinyglobby = require("tinyglobby");
 
 //#region lib/core/types.ts
 /**
@@ -103,10 +103,9 @@ async function collectGlobEntries(patterns, cwd, statConcurrency = 4) {
 	const patternList = patterns.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
 	const matchedRelPaths = /* @__PURE__ */ new Set();
 	for (const pattern of patternList) try {
-		const matches = glob.glob.sync(pattern, {
+		const matches = (0, tinyglobby.globSync)(pattern, {
 			cwd,
-			nodir: true,
-			strict: false,
+			onlyFiles: true,
 			dot: false
 		});
 		for (const rel of matches) matchedRelPaths.add(rel.replace(/\\/g, "/"));
@@ -245,6 +244,7 @@ var ZipEntry = class {
 		this.name = params.name;
 		this.isDirectory = params.isDirectory;
 		this.date = params.date;
+		this.mode = params.mode;
 		this.crc32 = params.crc32;
 		this.compressedSize = params.compressedSize;
 		this.uncompressedSize = params.uncompressedSize;
@@ -274,8 +274,9 @@ var NativeZip = class {
 	* Add a directory entry to the ZIP archive.
 	* @param archivePath Path inside the archive (with or without trailing "/").
 	* @param date        Modification date.
+	* @param mode        File mode (permissions).
 	*/
-	addDirectoryEntry(archivePath, date) {
+	addDirectoryEntry(archivePath, date, mode) {
 		let name = archivePath.replace(/\\/g, "/");
 		/* istanbul ignore next */
 		if (!name.endsWith("/")) name += "/";
@@ -283,6 +284,7 @@ var NativeZip = class {
 			name,
 			isDirectory: true,
 			date,
+			mode,
 			crc32: 0,
 			compressedSize: 0,
 			uncompressedSize: 0,
@@ -295,8 +297,9 @@ var NativeZip = class {
 	* @param filePath    Physical file path on disk.
 	* @param archivePath Path inside the archive.
 	* @param date        Modification date.
+	* @param mode        File mode (permissions).
 	*/
-	async addFileFromFs(filePath, archivePath, date) {
+	async addFileFromFs(filePath, archivePath, date, mode) {
 		const name = archivePath.replace(/\\/g, "/");
 		const data = await fs.promises.readFile(filePath);
 		const sum = crc32(data);
@@ -313,6 +316,7 @@ var NativeZip = class {
 			name,
 			isDirectory: false,
 			date,
+			mode,
 			crc32: sum,
 			compressedSize: compressed.length,
 			uncompressedSize: data.length,
@@ -400,7 +404,7 @@ var NativeZip = class {
 					const centralNeedsZip64 = centralNeedsZip64Sizes || centralNeedsZip64Offset;
 					centralHeader.writeUInt32LE(33639248, p);
 					p += 4;
-					centralHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
+					centralHeader.writeUInt16LE(768 | (useZip64 ? 45 : 20), p);
 					p += 2;
 					centralHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
 					p += 2;
@@ -452,8 +456,8 @@ var NativeZip = class {
 					p += 2;
 					centralHeader.writeUInt16LE(0, p);
 					p += 2;
-					const extAttr = entry.isDirectory ? 16 : 0;
-					centralHeader.writeUInt32LE(extAttr, p);
+					const extAttr = entry.mode << 16 | (entry.isDirectory ? 16 : 0);
+					centralHeader.writeUInt32LE(extAttr >>> 0, p);
 					p += 4;
 					if (centralNeedsZip64Offset) {
 						centralHeader.writeUInt32LE(4294967295, p);
@@ -678,8 +682,8 @@ var ZipAFolder = class {
 				relativePath: rp
 			};
 		});
-		for (const e of entries.filter((x) => x.isDirectory)) zipper.addDirectoryEntry(e.relativePath, e.stat.mtime);
-		for (const e of entries.filter((x) => !x.isDirectory)) await zipper.addFileFromFs(e.fsPath, e.relativePath, e.stat.mtime);
+		for (const e of entries.filter((x) => x.isDirectory)) zipper.addDirectoryEntry(e.relativePath, e.stat.mtime, e.stat.mode);
+		for (const e of entries.filter((x) => !x.isDirectory)) await zipper.addFileFromFs(e.fsPath, e.relativePath, e.stat.mtime, e.stat.mode);
 		if (!customWS && hasTargetPath) {
 			const parentDir = path.dirname(path.resolve(targetFilePath));
 			await fs.promises.stat(parentDir);

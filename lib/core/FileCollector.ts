@@ -1,8 +1,8 @@
 // src/core/FileCollector.ts
 import * as fs from 'fs';
 import * as path from 'path';
-import {glob} from 'glob';
 import {FileEntry} from './types';
+import {globSync} from 'tinyglobby';
 
 /**
  * Recursively collect entries (files + directories) under a directory,
@@ -80,11 +80,10 @@ export async function collectGlobEntries(patterns: string, cwd: string, statConc
     for (const pattern of patternList) {
         try {
             // Use synchronous glob to be compatible with older glob versions.
-            const matches = glob.sync(pattern, {
+            const matches = globSync(pattern, {
                 cwd,
-                nodir: true,
-                strict: false, // do not throw on ENOENT/EACCES
-                dot: false
+                onlyFiles: true,
+                dot: false,
             });
 
             for (const rel of matches) {
