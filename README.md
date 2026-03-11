@@ -73,11 +73,18 @@ A major rewrite using:
 - **Strict internal path normalization** mirroring classic zip-a-folder behavior
 - **Native glob handling** via `tinyglobby`
 
-### Version 5 (current)
+### Version 5
 
 - `COMPRESSION_LEVEL` is now a plain `const` object whose values are **string literals** (`'uncompressed'`, `'medium'`, `'high'`) instead of a numeric enum.
   The public API (`COMPRESSION_LEVEL.high`, etc.) is unchanged — only the underlying type changed from a TypeScript `enum` to a `const satisfies` object. See [PR #70](https://github.com/maugenst/zip-a-folder/pull/70) by [@schplitt](https://github.com/schplitt).
 - Added `exclude` option — an array of glob patterns for files/directories to omit from the archive. See [issue #65](https://github.com/maugenst/zip-a-folder/issues/65) by [@Pomax](https://github.com/Pomax).
+
+### Version 6 (current)
+
+- **Native Brotli compression support** for TAR archives using Node.js built-in `zlib.brotliCompressSync()`. Create `.tar.br` files with the new `compressionType: 'brotli'` option. Brotli typically provides better compression ratios than gzip, especially for text-based content.
+- **New 7z archive format support** via the `sevenZip()` function. Uses pure JavaScript LZMA compression (via `lzma-js` library) — no external binaries required. Provides excellent compression ratios with the industry-standard 7z format.
+- New `brotliOptions` for fine-grained control over brotli compression parameters.
+- New `compressionLevel` option (1-9) for 7z archives to control LZMA compression level.
 
 ---
 
