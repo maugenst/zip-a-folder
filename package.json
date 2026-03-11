@@ -1,6 +1,6 @@
 {
     "name": "zip-a-folder",
-    "version": "6.0.0",
+    "version": "6.0.1",
     "description": "Compress a complete folder or a glob list into a zip/tgz/br/7z file",
     "author": "Marius Augenstein",
     "license": "MIT",
