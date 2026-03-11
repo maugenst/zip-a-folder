@@ -1,10 +1,10 @@
 'use strict';
-import {describe, it, expect, beforeAll, afterAll} from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {zip, tar} from '../lib/ZipAFolder';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {collectEntriesFromDirectory, collectGlobEntries} from '../lib/core/FileCollector';
+import {tar, zip} from '../lib/ZipAFolder';
 
 // ---------------------------------------------------------------------------
 // Helpers

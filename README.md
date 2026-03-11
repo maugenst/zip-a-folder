@@ -6,6 +6,7 @@
 [![Known Vulnerabilities](https://snyk.io/test/github/maugenst/zip-a-folder/badge.svg)](https://snyk.io/test/github/maugenst/zip-a-folder)
 
 # zip-a-folder
+
 A fast, dependency-free ZIP/TAR/TGZ creation library using **native Node.js compression (zlib)**, supporting:
 
 - ZIP archives (with optional ZIP64)
@@ -45,17 +46,22 @@ Everything is implemented **natively** without JS zip/tar libraries.
 ## Incompatible Changes
 
 ### Version 2
-Added support for comma-separated glob lists.  
+
+Added support for comma-separated glob lists.
 This may change the behavior for cases previously interpreted as "folder only".
 
 ### Version 3
+
 Dual-module support (CJS + ESM).
 
 ### Version 3.1
+
 Added support for `destPath` to control the internal path layout of created archives.
 
 ### Version 4
+
 A major rewrite using:
+
 - **Fully native ZIP writer** (no dependencies)
 - **Native TAR + gzip writer**
 - **ZIP64 support** for large archives
@@ -64,7 +70,8 @@ A major rewrite using:
 - **Native glob handling** via `tinyglobby`
 
 ### Version 5 (current)
-- `COMPRESSION_LEVEL` is now a plain `const` object whose values are **string literals** (`'uncompressed'`, `'medium'`, `'high'`) instead of a numeric enum.  
+
+- `COMPRESSION_LEVEL` is now a plain `const` object whose values are **string literals** (`'uncompressed'`, `'medium'`, `'high'`) instead of a numeric enum.
   The public API (`COMPRESSION_LEVEL.high`, etc.) is unchanged — only the underlying type changed from a TypeScript `enum` to a `const satisfies` object. See [PR #70](https://github.com/maugenst/zip-a-folder/pull/70) by [@schplitt](https://github.com/schplitt).
 - Added `exclude` option — an array of glob patterns for files/directories to omit from the archive. See [issue #65](https://github.com/maugenst/zip-a-folder/issues/65) by [@Pomax](https://github.com/Pomax).
 
@@ -108,7 +115,7 @@ COMPRESSION_LEVEL.medium        // balanced
 COMPRESSION_LEVEL.uncompressed  // STORE for zip, no-gzip for tar
 ```
 
-> **v5:** `COMPRESSION_LEVEL` is now a `const` object with **string** values (`'high'`, `'medium'`, `'uncompressed'`).  
+> **v5:** `COMPRESSION_LEVEL` is now a `const` object with **string** values (`'high'`, `'medium'`, `'uncompressed'`).
 > The `compression` option accepts either the constant (`COMPRESSION_LEVEL.high`) or the plain string (`'high'`) directly.
 
 Example:
@@ -189,8 +196,8 @@ await zip('/path/to/folder', undefined, { customWriteStream: ws });
 **Important:**
 zip-a-folder does *not* validate custom streams. You must ensure:
 
-* parent directory exists
-* you're not writing into the source directory (to avoid recursion)
+- parent directory exists
+- you're not writing into the source directory (to avoid recursion)
 
 ---
 
@@ -198,9 +205,9 @@ zip-a-folder does *not* validate custom streams. You must ensure:
 
 The first parameter may be:
 
-* A path to a directory
-* A single glob
-* A comma-separated list of globs
+- A path to a directory
+- A single glob
+- A comma-separated list of globs
 
 Example:
 
@@ -237,6 +244,7 @@ data/subdir/file2.txt
 When passing a directory path as the first argument (e.g. `zip('/path/to/folder', '/archive.zip')`), the archive by default contains the *contents* of that directory at the archive root (i.e. you will see the files inside `folder/`, not a top-level `folder/` directory itself).
 
 #### Include the directory itself
+
 If you want the archive to unpack into the named folder (so the top level of the archive contains `folder/`), set `destPath` to that folder name plus a trailing slash:
 
 ```ts
@@ -246,13 +254,15 @@ await zip('/path/to/folder', '/archive.zip', {
 ```
 
 Result layout:
+
 ```
 folder/file1.txt
 folder/sub/file2.txt
 ```
 
 ### Summary
-- Default: directory contents only (no enclosing folder)  
+
+- Default: directory contents only (no enclosing folder)
 - To include the folder: use `destPath: '<dirname>/'`
 
 This applies equally to `tar()`.
@@ -261,8 +271,8 @@ This applies equally to `tar()`.
 
 ## Excluding Files and Directories (`exclude`)
 
-The `exclude` option accepts an array of **picomatch-style glob patterns**.  
-Matching entries (files and directories) are omitted from the archive entirely —  
+The `exclude` option accepts an array of **picomatch-style glob patterns**.
+Matching entries (files and directories) are omitted from the archive entirely —
 when a directory is excluded its entire subtree is skipped.
 
 ```js
@@ -284,6 +294,7 @@ const packed = await zip('/path/to/project', '/path/to/archive.zip', {
 ```
 
 > **Notes:**
+>
 > - `exclude` is applied to **directory sources** and **glob sources** alike.
 > - For glob sources, the patterns are passed as additional `ignore` entries to tinyglobby.
 > - Patterns are matched against **relative paths** inside the source directory (POSIX-style).
@@ -311,13 +322,13 @@ import type { ZipArchiveOptions, TarArchiveOptions } from 'zip-a-folder';
 
 ## Native Implementation Notes
 
-* ZIP and TAR are written using **pure Node.js** (`zlib`, raw buffering)
-* ZIP64 support included
-* File system scanning performed with a **parallel stat queue**
-* Globs handled via the **tinyglobby** package
-* Archive layout matches the original zip-a-folder for compatibility
-* ZIP writer supports dependency-free deflate and manual header construction
-* TAR writer produces POSIX ustar format with proper 512-byte block alignment
+- ZIP and TAR are written using **pure Node.js** (`zlib`, raw buffering)
+- ZIP64 support included
+- File system scanning performed with a **parallel stat queue**
+- Globs handled via the **tinyglobby** package
+- Archive layout matches the original zip-a-folder for compatibility
+- ZIP writer supports dependency-free deflate and manual header construction
+- TAR writer produces POSIX ustar format with proper 512-byte block alignment
 
 ---
 
@@ -329,12 +340,13 @@ A recent contribution restored correct handling of file modes for Unix systems i
 - File modes from `fs.stat().mode` are passed through to the ZIP entries and preserved.
 - Modes are mapped into the upper 16 bits of the "External File Attributes" field per the ZIP spec.
 
-This brings parity back with v3 behavior and ensures executables and other POSIX permissions are preserved 
+This brings parity back with v3 behavior and ensures executables and other POSIX permissions are preserved
 when packaging for Linux/Debian and similar environments.
 
-See PR #66: https://github.com/maugenst/zip-a-folder/pull/66
+See PR #66: <https://github.com/maugenst/zip-a-folder/pull/66>
 
 Automated tests were added to validate:
+
 - Central Directory "Version Made By" upper byte is 3 (Unix).
 - External File Attributes store the POSIX mode (both files and directories), including directory flag.
 - FileCollector behavior and glob handling are fully covered, pushing coverage to 100% lines/functions.
@@ -357,17 +369,17 @@ Coverage is reported automatically via `@vitest/coverage-v8`.
 
 Special thanks to contributors:
 
-* @sole – initial work
-* @YOONBYEONGIN
-* @Wunschik
-* @ratbeard
-* @Xotabu4
-* @dallenbaldwin
-* @wiralegawa
-* @karan-gaur
-* @malthe
-* @nesvet
-* @schplitt – string-literal compression levels refactor ([PR #70](https://github.com/maugenst/zip-a-folder/pull/70))
-* @Pomax – `exclude` option feature request ([issue #65](https://github.com/maugenst/zip-a-folder/issues/65))
+- @sole – initial work
+- @YOONBYEONGIN
+- @Wunschik
+- @ratbeard
+- @Xotabu4
+- @dallenbaldwin
+- @wiralegawa
+- @karan-gaur
+- @malthe
+- @nesvet
+- @schplitt – string-literal compression levels refactor ([PR #70](https://github.com/maugenst/zip-a-folder/pull/70))
+- @Pomax – `exclude` option feature request ([issue #65](https://github.com/maugenst/zip-a-folder/issues/65))
 
 Additional thanks to everyone helping shape the native rewrite.

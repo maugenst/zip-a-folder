@@ -1,7 +1,7 @@
-import {describe, expect, it} from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import {describe, expect, it} from 'vitest';
 import {collectEntriesFromDirectory, collectGlobEntries} from '../lib/core/FileCollector';
 
 function makeTmpDir(prefix: string) {

@@ -1,6 +1,6 @@
 'use strict';
-import {describe, it, expect} from 'vitest';
-import {crc32, dateToDosDate, dateToDosTime, writeUInt64LE, looksLikeGlob} from '../lib/core/utils';
+import {describe, expect, it} from 'vitest';
+import {crc32, dateToDosDate, dateToDosTime, looksLikeGlob, writeUInt64LE} from '../lib/core/utils';
 
 describe('core utils', () => {
     it('computes crc32 deterministically', () => {

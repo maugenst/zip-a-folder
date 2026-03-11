@@ -25,3 +25,5 @@ test/largeFolder
 
 # Coverage
 coverage
+
+.env
