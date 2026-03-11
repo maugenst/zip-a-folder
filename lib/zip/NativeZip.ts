@@ -88,7 +88,6 @@ export class NativeZip {
      */
     public addDirectoryEntry(archivePath: string, date: Date, mode: number): void {
         let name = archivePath.replace(/\\/g, '/');
-        /* istanbul ignore next */
         if (!name.endsWith('/')) {
             name += '/';
         }
@@ -356,7 +355,7 @@ export class NativeZip {
                 const totalEntries = this.entries.length;
 
                 // Overflow checks for ZIP64
-                /* istanbul ignore next */
+                /* v8 ignore next 3 */
                 if (startOfCentralDir >= 0xffffffff || sizeOfCentralDir >= 0xffffffff || totalEntries >= 0xffff) {
                     useZip64 = true;
                 }
@@ -447,8 +446,8 @@ export class NativeZip {
                 }
 
                 (stream as any).end?.(() => resolve());
+                /* v8 ignore next 3 */
             } catch (err) {
-                /* istanbul ignore next */
                 reject(err);
             }
         });

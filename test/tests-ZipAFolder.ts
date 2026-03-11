@@ -1,15 +1,13 @@
 'use strict';
-import 'jest-extended';
 import * as fs from 'fs';
-const {open, mkdir, rm} = require('fs').promises;
-import * as rimraf from 'rimraf';
+import {mkdir, open, rm} from 'fs/promises';
 import * as path from 'path';
 import {Writable} from 'stream';
-
-import {COMPRESSION_LEVEL, tar, zip, ZipAFolder as zipafolder} from '../lib/ZipAFolder';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
+import {FileEntry} from '../lib/core/types';
 import {writeToStream} from '../lib/core/utils';
 import {NativeTar} from '../lib/tar/NativeTar';
-import {FileEntry} from '../lib/core/types';
+import {COMPRESSION_LEVEL, tar, zip, ZipAFolder as zipafolder} from '../lib/ZipAFolder';
 
 describe('Zip-A-Folder Test', function () {
     const testZIP = path.resolve(__dirname, 'test.zip');
@@ -36,9 +34,13 @@ describe('Zip-A-Folder Test', function () {
     const tempNativeFile = path.resolve(__dirname, 'temp-native.txt');
 
     beforeAll(() => {
-        rimraf.sync('test/*.tgz');
-        rimraf.sync('test/*.tar');
-        rimraf.sync('test/*.zip');
+        // Clean up test artifacts using glob patterns
+        const testDir = path.resolve(__dirname);
+        for (const file of fs.readdirSync(testDir)) {
+            if (file.endsWith('.tgz') || file.endsWith('.tar') || file.endsWith('.zip')) {
+                fs.rmSync(path.join(testDir, file), {force: true});
+            }
+        }
 
         // Ensure temp file exists for internal coverage tests
         fs.writeFileSync(tempNativeFile, 'hello from native coverage\n');
@@ -279,7 +281,7 @@ describe('Zip-A-Folder Test', function () {
             compression: COMPRESSION_LEVEL.high,
             zlib: {level: 3} // non-default level to hit "already set" branch
         });
-        expect(fs.existsSync(out)).toBeTrue();
+        expect(fs.existsSync(out)).toBe(true);
     });
 
     it('TGZ: respects user-provided gzipOptions.level (does not override)', async () => {
@@ -289,7 +291,7 @@ describe('Zip-A-Folder Test', function () {
             compression: COMPRESSION_LEVEL.high,
             gzipOptions: {level: 4}
         });
-        expect(fs.existsSync(out)).toBeTrue();
+        expect(fs.existsSync(out)).toBe(true);
     });
 
     it('ZIP: weird compression enum goes through default branch safely', async () => {
@@ -298,7 +300,7 @@ describe('Zip-A-Folder Test', function () {
             // @ts-expect-error – intentionally invalid to hit default branch
             compression: 999
         });
-        expect(fs.existsSync(out)).toBeTrue();
+        expect(fs.existsSync(out)).toBe(true);
     });
 
     it('TGZ: weird compression enum goes through default branch safely', async () => {
@@ -307,7 +309,7 @@ describe('Zip-A-Folder Test', function () {
             // @ts-expect-error – intentionally invalid to hit default branch
             compression: 999
         });
-        expect(fs.existsSync(out)).toBeTrue();
+        expect(fs.existsSync(out)).toBe(true);
     });
 
     it('ZIP: forces ZIP64 + namePrependSlash + comment code paths', async () => {
@@ -318,7 +320,7 @@ describe('Zip-A-Folder Test', function () {
             comment: 'zip64-test-comment',
             compression: COMPRESSION_LEVEL.medium
         });
-        expect(fs.existsSync(out)).toBeTrue();
+        expect(fs.existsSync(out)).toBe(true);
     });
 
     it('ZIP: STORE method via store=true and uncompressed compression', async () => {
@@ -327,7 +329,7 @@ describe('Zip-A-Folder Test', function () {
             store: true,
             compression: COMPRESSION_LEVEL.uncompressed
         });
-        expect(fs.existsSync(out)).toBeTrue();
+        expect(fs.existsSync(out)).toBe(true);
     });
 
     it('TGZ: gzip=false with non-uncompressed compression hits non-gzip branch explicitly', async () => {
@@ -336,7 +338,7 @@ describe('Zip-A-Folder Test', function () {
             gzip: false,
             compression: COMPRESSION_LEVEL.medium
         });
-        expect(fs.existsSync(out)).toBeTrue();
+        expect(fs.existsSync(out)).toBe(true);
     });
 
     it('utils.writeToStream: rejects on underlying stream error', async () => {
@@ -382,5 +384,51 @@ describe('Zip-A-Folder Test', function () {
         // Trailer blocks should have been written -> total size > file content alone.
         const totalSize = chunks.reduce((sum, b) => sum + b.length, 0);
         expect(totalSize).toBeGreaterThan(stat.size);
+    });
+
+    it('NativeTar: addDirectory without trailing slash adds it automatically', async () => {
+        const chunks: Buffer[] = [];
+        const mem = new Writable({
+            write(chunk, _enc, cb) {
+                chunks.push(Buffer.from(chunk));
+                cb();
+            }
+        });
+
+        const tarImpl = new NativeTar(mem as any);
+        const stat = fs.statSync(path.resolve(__dirname, 'data'));
+        const entry: FileEntry = {
+            fsPath: path.resolve(__dirname, 'data'),
+            // no trailing slash – should be added automatically
+            relativePath: 'data',
+            isDirectory: true,
+            stat
+        };
+
+        await tarImpl.addDirectory(entry);
+        await tarImpl.finalize();
+
+        // header should have been written
+        const totalSize = chunks.reduce((sum, b) => sum + b.length, 0);
+        expect(totalSize).toBeGreaterThan(0);
+    });
+
+    it('ZIP: source is a file (not directory) should throw an error', async () => {
+        await expect(
+            zipafolder.zip(path.resolve(__dirname, 'data/json/test.json'), path.resolve(__dirname, 'test.zip'))
+        ).rejects.toThrow(/Source must be a directory when no glob pattern is used./);
+    });
+
+    it('TGZ: source is a file (not directory) should throw an error', async () => {
+        await expect(
+            zipafolder.tar(path.resolve(__dirname, 'data/json/test.json'), path.resolve(__dirname, 'test.tgz'))
+        ).rejects.toThrow(/Source must be a directory when no glob pattern is used./);
+    });
+
+    it('TGZ: glob that matches nothing should throw No glob match found', async () => {
+        await expect(tar('test/inaccessible/**/*.json', 'THISWILLNEVEREXIST.tgz')).rejects.toThrow(
+            /No glob match found/
+        );
+        expect(fs.existsSync('THISWILLNEVEREXIST.tgz')).toBe(false);
     });
 });

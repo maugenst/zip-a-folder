@@ -1,21 +1,24 @@
 'use strict';
-import 'jest-extended';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {COMPRESSION_LEVEL, zip} from '../lib/ZipAFolder';
 
 describe('Zip options coverage', () => {
-    const outZip = path.resolve(__dirname, 'test.options.zip');
-    const outZipStore = path.resolve(__dirname, 'test.options.store.zip');
-    const srcDir = path.resolve(__dirname, 'data'); // you already use this in other tests
+    const srcDir = path.resolve(__dirname, 'data');
+    let tmpDir: string;
+    let outZip: string;
+    let outZipStore: string;
+
+    beforeAll(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-a-folder-zip-opts-'));
+        outZip = path.join(tmpDir, 'test.options.zip');
+        outZipStore = path.join(tmpDir, 'test.options.store.zip');
+    });
 
     afterAll(() => {
-        if (fs.existsSync(outZip)) {
-            fs.unlinkSync(outZip);
-        }
-        if (fs.existsSync(outZipStore)) {
-            fs.unlinkSync(outZipStore);
-        }
+        fs.rmSync(tmpDir, {recursive: true, force: true});
     });
 
     it('creates zip with comment, forceZip64, namePrependSlash', async () => {
@@ -26,7 +29,7 @@ describe('Zip options coverage', () => {
             compression: COMPRESSION_LEVEL.medium
         });
 
-        expect(fs.existsSync(outZip)).toBeTrue();
+        expect(fs.existsSync(outZip)).toBe(true);
         const stat = fs.statSync(outZip);
         expect(stat.size).toBeGreaterThan(0);
     });
@@ -37,7 +40,7 @@ describe('Zip options coverage', () => {
             compression: COMPRESSION_LEVEL.uncompressed
         });
 
-        expect(fs.existsSync(outZipStore)).toBeTrue();
+        expect(fs.existsSync(outZipStore)).toBe(true);
         const sizeStore = fs.statSync(outZipStore).size;
 
         // Just sanity check: previous compressed zip should not be *smaller* if store is used

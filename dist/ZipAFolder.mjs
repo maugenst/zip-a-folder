@@ -3,18 +3,6 @@ import * as path from "path";
 import * as zlib from "zlib";
 import { globSync } from "tinyglobby";
 
-//#region lib/core/types.ts
-/**
-* Compression levels used as convenience presets for zlib/gzip.
-*/
-let COMPRESSION_LEVEL = /* @__PURE__ */ function(COMPRESSION_LEVEL$1) {
-	COMPRESSION_LEVEL$1[COMPRESSION_LEVEL$1["uncompressed"] = 0] = "uncompressed";
-	COMPRESSION_LEVEL$1[COMPRESSION_LEVEL$1["medium"] = 1] = "medium";
-	COMPRESSION_LEVEL$1[COMPRESSION_LEVEL$1["high"] = 2] = "high";
-	return COMPRESSION_LEVEL$1;
-}({});
-
-//#endregion
 //#region lib/core/FileCollector.ts
 /**
 * Recursively collect entries (files + directories) under a directory,
@@ -22,44 +10,42 @@ let COMPRESSION_LEVEL = /* @__PURE__ */ function(COMPRESSION_LEVEL$1) {
 *
 * - The root directory itself is NOT returned as an entry.
 * - Directory entries have relativePath ending with "/".
+* - Entries matching any pattern in `exclude` are omitted (along with their children).
 */
-async function collectEntriesFromDirectory(rootDir, statConcurrency = 4) {
+async function collectEntriesFromDirectory(rootDir, statConcurrency = 4, exclude) {
 	const root = path.resolve(rootDir);
 	const entries = [];
-	const dirQueue = [{
-		fsPath: root,
-		relPath: ""
-	}];
+	const relPaths = globSync("**/*", {
+		cwd: root,
+		onlyFiles: false,
+		dot: true,
+		ignore: exclude
+	});
 	statConcurrency = Math.max(1, statConcurrency | 0);
+	let index = 0;
 	const worker = async () => {
 		while (true) {
-			const item = dirQueue.shift();
-			if (!item) break;
-			const dirents = await fs.promises.readdir(item.fsPath, { withFileTypes: true });
-			for (const d of dirents) {
-				const childFsPath = path.join(item.fsPath, d.name);
-				const rel = item.relPath ? path.posix.join(item.relPath, d.name) : d.name;
-				const stat = await fs.promises.stat(childFsPath);
-				if (d.isDirectory()) {
-					/* istanbul ignore next */
-					const relDirPath = rel.endsWith("/") ? rel : rel + "/";
-					entries.push({
-						fsPath: childFsPath,
-						relativePath: relDirPath.replace(/\\/g, "/"),
-						isDirectory: true,
-						stat
-					});
-					dirQueue.push({
-						fsPath: childFsPath,
-						relPath: rel
-					});
-				} else if (d.isFile()) entries.push({
-					fsPath: childFsPath,
-					relativePath: rel.replace(/\\/g, "/"),
-					isDirectory: false,
+			const i = index++;
+			if (i >= relPaths.length) break;
+			const rel = relPaths[i];
+			const fsPath = path.join(root, rel);
+			const stat = await fs.promises.lstat(fsPath);
+			if (stat.isSymbolicLink()) continue;
+			if (stat.isDirectory()) {
+				/* v8 ignore next */
+				const relDirPath = rel.endsWith("/") ? rel : rel + "/";
+				entries.push({
+					fsPath,
+					relativePath: relDirPath.replace(/\\/g, "/"),
+					isDirectory: true,
 					stat
 				});
-			}
+			} else if (stat.isFile()) entries.push({
+				fsPath,
+				relativePath: rel.replace(/\\/g, "/"),
+				isDirectory: false,
+				stat
+			});
 		}
 	};
 	const workers = Array.from({ length: statConcurrency }, () => worker());
@@ -69,18 +55,19 @@ async function collectEntriesFromDirectory(rootDir, statConcurrency = 4) {
 /**
 * Collect file entries from one or more glob patterns, relative to a given cwd.
 *
-* - Uses the "glob" package.
+* - Uses the "tinyglobby" package.
 * - Only files are returned (no explicit directory entries).
 * - Returns [] when there is no match (caller will throw "No glob match found").
 */
-async function collectGlobEntries(patterns, cwd, statConcurrency = 4) {
+async function collectGlobEntries(patterns, cwd, statConcurrency = 4, exclude) {
 	const patternList = patterns.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
 	const matchedRelPaths = /* @__PURE__ */ new Set();
 	for (const pattern of patternList) try {
 		const matches = globSync(pattern, {
 			cwd,
 			onlyFiles: true,
-			dot: false
+			dot: false,
+			ignore: exclude
 		});
 		for (const rel of matches) matchedRelPaths.add(rel.replace(/\\/g, "/"));
 	} catch {}
@@ -96,7 +83,7 @@ async function collectGlobEntries(patterns, cwd, statConcurrency = 4) {
 			const rel = relPaths[i];
 			const abs = path.resolve(cwd, rel);
 			const stat = await fs.promises.stat(abs);
-			/* istanbul ignore next */
+			/* v8 ignore next 3 */
 			if (!stat.isFile()) continue;
 			entries.push({
 				fsPath: abs,
@@ -186,7 +173,7 @@ function writeUInt64LE(buf, value, offset) {
 */
 function writeToStream(stream, data) {
 	return new Promise((resolve, reject) => {
-		/* istanbul ignore next */
+		/* v8 ignore next 4 */
 		const onError = (err) => {
 			stream.removeListener("error", onError);
 			reject(err);
@@ -194,7 +181,7 @@ function writeToStream(stream, data) {
 		stream.once("error", onError);
 		stream.write(data, (err) => {
 			stream.removeListener("error", onError);
-			/* istanbul ignore next */
+			/* v8 ignore next 3 */
 			if (err) reject(err);
 			else resolve();
 		});
@@ -206,6 +193,69 @@ function writeToStream(stream, data) {
 function looksLikeGlob(source) {
 	return /[*?[\]{},]/.test(source);
 }
+
+//#endregion
+//#region lib/tar/NativeTar.ts
+/**
+* Create a 512-byte TAR header block for a file or directory.
+*/
+function createTarHeader(name, size, mtimeSeconds, mode, isDirectory) {
+	const buf = Buffer.alloc(512, 0);
+	writeString(buf, name, 0, 100);
+	writeOctal(buf, mode & 4095, 100, 8);
+	writeOctal(buf, 0, 108, 8);
+	writeOctal(buf, 0, 116, 8);
+	writeOctal(buf, size, 124, 12);
+	writeOctal(buf, Math.floor(mtimeSeconds), 136, 12);
+	for (let i = 148; i < 156; i++) buf[i] = 32;
+	buf[156] = (isDirectory ? "5" : "0").charCodeAt(0);
+	writeString(buf, "ustar", 257, 6);
+	writeString(buf, "00", 263, 2);
+	let sum = 0;
+	for (let i = 0; i < 512; i++) sum += buf[i];
+	writeOctal(buf, sum, 148, 8);
+	return buf;
+}
+/**
+* Minimal TAR writer used to build tar streams for .tar / .tgz files.
+*/
+var NativeTar = class {
+	constructor(stream) {
+		this.stream = stream;
+	}
+	/**
+	* Add a directory entry (no data, only header).
+	*/
+	async addDirectory(entry) {
+		let name = entry.relativePath.replace(/\\/g, "/");
+		if (!name.endsWith("/")) name += "/";
+		const header = createTarHeader(name, 0, entry.stat.mtime.getTime() / 1e3, entry.stat.mode, true);
+		await writeToStream(this.stream, header);
+	}
+	/**
+	* Add a file entry (header + file data + padding to 512 bytes).
+	*/
+	async addFile(entry) {
+		const name = entry.relativePath.replace(/\\/g, "/");
+		const data = await fs.promises.readFile(entry.fsPath);
+		const header = createTarHeader(name, data.length, entry.stat.mtime.getTime() / 1e3, entry.stat.mode, false);
+		await writeToStream(this.stream, header);
+		await writeToStream(this.stream, data);
+		const remainder = data.length % 512;
+		if (remainder !== 0) {
+			const padding = Buffer.alloc(512 - remainder, 0);
+			await writeToStream(this.stream, padding);
+		}
+	}
+	/**
+	* Finalize the TAR archive by writing two 512-byte zero blocks.
+	*/
+	async finalize() {
+		const block = Buffer.alloc(512, 0);
+		await writeToStream(this.stream, block);
+		await writeToStream(this.stream, block);
+	}
+};
 
 //#endregion
 //#region lib/zip/NativeZip.ts
@@ -252,7 +302,6 @@ var NativeZip = class {
 	*/
 	addDirectoryEntry(archivePath, date, mode) {
 		let name = archivePath.replace(/\\/g, "/");
-		/* istanbul ignore next */
 		if (!name.endsWith("/")) name += "/";
 		this.entries.push(new ZipEntry({
 			name,
@@ -447,7 +496,7 @@ var NativeZip = class {
 				const centralDirectoryBuffer = Buffer.concat(centralDirParts);
 				const sizeOfCentralDir = centralDirectoryBuffer.length;
 				const totalEntries = this.entries.length;
-				/* istanbul ignore next */
+				/* v8 ignore next 3 */
 				if (startOfCentralDir >= 4294967295 || sizeOfCentralDir >= 4294967295 || totalEntries >= 65535) useZip64 = true;
 				stream.write(centralDirectoryBuffer);
 				const offsetAfterCentralDir = startOfCentralDir + sizeOfCentralDir;
@@ -509,7 +558,6 @@ var NativeZip = class {
 				if (commentBuffer.length > 0) stream.write(commentBuffer);
 				stream.end?.(() => resolve());
 			} catch (err) {
-				/* istanbul ignore next */
 				reject(err);
 			}
 		});
@@ -517,71 +565,12 @@ var NativeZip = class {
 };
 
 //#endregion
-//#region lib/tar/NativeTar.ts
-/**
-* Create a 512-byte TAR header block for a file or directory.
-*/
-function createTarHeader(name, size, mtimeSeconds, mode, isDirectory) {
-	const buf = Buffer.alloc(512, 0);
-	writeString(buf, name, 0, 100);
-	writeOctal(buf, mode & 4095, 100, 8);
-	writeOctal(buf, 0, 108, 8);
-	writeOctal(buf, 0, 116, 8);
-	writeOctal(buf, size, 124, 12);
-	writeOctal(buf, Math.floor(mtimeSeconds), 136, 12);
-	for (let i = 148; i < 156; i++) buf[i] = 32;
-	buf[156] = (isDirectory ? "5" : "0").charCodeAt(0);
-	writeString(buf, "ustar", 257, 6);
-	writeString(buf, "00", 263, 2);
-	let sum = 0;
-	for (let i = 0; i < 512; i++) sum += buf[i];
-	writeOctal(buf, sum, 148, 8);
-	return buf;
-}
-/**
-* Minimal TAR writer used to build tar streams for .tar / .tgz files.
-*/
-var NativeTar = class {
-	constructor(stream) {
-		this.stream = stream;
-	}
-	/**
-	* Add a directory entry (no data, only header).
-	*/
-	async addDirectory(entry) {
-		let name = entry.relativePath.replace(/\\/g, "/");
-		/* istanbul ignore next */
-		if (!name.endsWith("/")) name += "/";
-		const header = createTarHeader(name, 0, entry.stat.mtime.getTime() / 1e3, entry.stat.mode, true);
-		await writeToStream(this.stream, header);
-	}
-	/**
-	* Add a file entry (header + file data + padding to 512 bytes).
-	*/
-	async addFile(entry) {
-		const name = entry.relativePath.replace(/\\/g, "/");
-		const data = await fs.promises.readFile(entry.fsPath);
-		const header = createTarHeader(name, data.length, entry.stat.mtime.getTime() / 1e3, entry.stat.mode, false);
-		await writeToStream(this.stream, header);
-		await writeToStream(this.stream, data);
-		const remainder = data.length % 512;
-		if (remainder !== 0) {
-			const padding = Buffer.alloc(512 - remainder, 0);
-			await writeToStream(this.stream, padding);
-		}
-	}
-	/**
-	* Finalize the TAR archive by writing two 512-byte zero blocks.
-	*/
-	async finalize() {
-		const block = Buffer.alloc(512, 0);
-		await writeToStream(this.stream, block);
-		await writeToStream(this.stream, block);
-	}
-};
-
-//#endregion
 //#region lib/ZipAFolder.ts
+const COMPRESSION_LEVEL = {
+	uncompressed: "uncompressed",
+	medium: "medium",
+	high: "high"
+};
 /**
 * High-level facade class that provides ZIP/TAR creation helpers.
 *
@@ -604,13 +593,13 @@ var ZipAFolder = class {
 		const hasTargetPath = !!(targetFilePath && targetFilePath.length > 0);
 		if (!hasTargetPath && !customWS) throw new Error("You must either provide a target file path or a custom write stream to write to.");
 		const statConcurrency = options.statConcurrency ?? 4;
-		const zipStore = options.store === true || options.compression === COMPRESSION_LEVEL.uncompressed;
+		const zipStore = options.store === true || options.compression === "uncompressed";
 		const zlibOptions = { ...options.zlib || {} };
 		if (!zipStore && options.compression !== void 0) switch (options.compression) {
-			case COMPRESSION_LEVEL.medium:
+			case "medium":
 				if (zlibOptions.level === void 0) zlibOptions.level = zlib.constants.Z_DEFAULT_COMPRESSION;
 				break;
-			case COMPRESSION_LEVEL.high:
+			case "high":
 				if (zlibOptions.level === void 0) zlibOptions.level = zlib.constants.Z_BEST_COMPRESSION;
 				break;
 			default: break;
@@ -627,11 +616,10 @@ var ZipAFolder = class {
 		const isGlob = looksLikeGlob(source);
 		let entries = [];
 		if (isGlob) {
-			entries = await collectGlobEntries(source, cwd, statConcurrency);
+			entries = await collectGlobEntries(source, cwd, statConcurrency, options.exclude);
 			if (entries.length === 0) throw new Error("No glob match found");
 		} else {
 			const sourceDir = path.resolve(source);
-			/* istanbul ignore next */
 			if (!(await fs.promises.stat(sourceDir)).isDirectory()) throw new Error("Source must be a directory when no glob pattern is used.");
 			if (hasTargetPath) {
 				const targetAbs = path.resolve(targetFilePath);
@@ -639,7 +627,7 @@ var ZipAFolder = class {
 				const normalizedSourceDir = path.resolve(sourceDir);
 				if (targetDir === normalizedSourceDir || targetDir.startsWith(normalizedSourceDir + path.sep)) throw new Error("Source and target folder must be different.");
 			}
-			entries = await collectEntriesFromDirectory(sourceDir, statConcurrency);
+			entries = await collectEntriesFromDirectory(sourceDir, statConcurrency, options.exclude);
 			if (options.destPath) {
 				const prefix = options.destPath.replace(/\\/g, "/").replace(/\/+$/, "");
 				if (prefix.length > 0) entries = entries.map((e) => ({
@@ -649,7 +637,7 @@ var ZipAFolder = class {
 			}
 		}
 		if (options.namePrependSlash) entries = entries.map((e) => {
-			/* istanbul ignore next */
+			/* v8 ignore next */
 			const rp = e.relativePath.startsWith("/") ? e.relativePath : "/" + e.relativePath;
 			return {
 				...e,
@@ -681,12 +669,10 @@ var ZipAFolder = class {
 		const isGlob = looksLikeGlob(source);
 		let entries = [];
 		if (isGlob) {
-			entries = await collectGlobEntries(source, cwd, statConcurrency);
-			/* istanbul ignore next */
+			entries = await collectGlobEntries(source, cwd, statConcurrency, options.exclude);
 			if (entries.length === 0) throw new Error("No glob match found");
 		} else {
 			const sourceDir = path.resolve(source);
-			/* istanbul ignore next */
 			if (!(await fs.promises.stat(sourceDir)).isDirectory()) throw new Error("Source must be a directory when no glob pattern is used.");
 			if (hasTargetPath) {
 				const targetAbs = path.resolve(targetFilePath);
@@ -694,17 +680,17 @@ var ZipAFolder = class {
 				const normalizedSourceDir = path.resolve(sourceDir);
 				if (targetDir === normalizedSourceDir || targetDir.startsWith(normalizedSourceDir + path.sep)) throw new Error("Source and target folder must be different.");
 			}
-			entries = await collectEntriesFromDirectory(sourceDir, statConcurrency);
+			entries = await collectEntriesFromDirectory(sourceDir, statConcurrency, options.exclude);
 		}
 		let gzipEnabled = options.gzip;
-		if (options.compression === COMPRESSION_LEVEL.uncompressed) gzipEnabled = false;
+		if (options.compression === "uncompressed") gzipEnabled = false;
 		else if (gzipEnabled === void 0) gzipEnabled = true;
 		const gzipOptions = { ...options.gzipOptions || {} };
 		if (gzipEnabled && options.compression !== void 0) switch (options.compression) {
-			case COMPRESSION_LEVEL.medium:
+			case "medium":
 				if (gzipOptions.level === void 0) gzipOptions.level = zlib.constants.Z_DEFAULT_COMPRESSION;
 				break;
-			case COMPRESSION_LEVEL.high:
+			case "high":
 				if (gzipOptions.level === void 0) gzipOptions.level = zlib.constants.Z_BEST_COMPRESSION;
 				break;
 			default: break;
@@ -726,7 +712,7 @@ var ZipAFolder = class {
 		await tarWriter.finalize();
 		await new Promise((resolve, reject) => {
 			const finishTarget = gzipEnabled ? finalOut : tarDestination;
-			/* istanbul ignore next */
+			/* v8 ignore next 4 */
 			const onError = (err) => {
 				cleanup();
 				reject(err);

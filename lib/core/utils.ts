@@ -50,7 +50,7 @@ export function dateToDosDate(date: Date, useLocal: boolean): number {
     const year = useLocal ? date.getFullYear() : date.getUTCFullYear();
     const month = (useLocal ? date.getMonth() : date.getUTCMonth()) + 1;
     const day = useLocal ? date.getDate() : date.getUTCDate();
-    /* istanbul ignore next */
+    /* v8 ignore next */
     const dosYear = year < 1980 ? 0 : year - 1980;
     return (dosYear << 9) | (month << 5) | day;
 }
@@ -88,7 +88,7 @@ export function writeUInt64LE(buf: Buffer, value: number, offset: number): void 
  */
 export function writeToStream(stream: NodeJS.WritableStream, data: Buffer): Promise<void> {
     return new Promise((resolve, reject) => {
-        /* istanbul ignore next */
+        /* v8 ignore next 4 */
         const onError = (err: Error) => {
             stream.removeListener('error', onError);
             reject(err);
@@ -96,7 +96,7 @@ export function writeToStream(stream: NodeJS.WritableStream, data: Buffer): Prom
         stream.once('error', onError);
         stream.write(data, (err?: Error | null) => {
             stream.removeListener('error', onError);
-            /* istanbul ignore next */
+            /* v8 ignore next 3 */
             if (err) {
                 reject(err);
             } else {

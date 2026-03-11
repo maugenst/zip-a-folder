@@ -1,5 +1,5 @@
 'use strict';
-import 'jest-extended';
+import {describe, it, expect} from 'vitest';
 import {crc32, dateToDosDate, dateToDosTime, writeUInt64LE, looksLikeGlob} from '../lib/core/utils';
 
 describe('core utils', () => {
@@ -42,8 +42,8 @@ describe('core utils', () => {
     });
 
     it('detects glob-like patterns', () => {
-        expect(looksLikeGlob('**/*.json')).toBeTrue();
-        expect(looksLikeGlob('foo/*.txt')).toBeTrue();
-        expect(looksLikeGlob('no/glob/here.txt')).toBeFalse();
+        expect(looksLikeGlob('**/*.json')).toBe(true);
+        expect(looksLikeGlob('foo/*.txt')).toBe(true);
+        expect(looksLikeGlob('no/glob/here.txt')).toBe(false);
     });
 });

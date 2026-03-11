@@ -2,16 +2,19 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
-
-import {COMPRESSION_LEVEL, FileEntry, TarArchiveOptions, ZipArchiveOptions} from './core/types';
 import {collectEntriesFromDirectory, collectGlobEntries} from './core/FileCollector';
+import {COMPRESSION_LEVELS, FileEntry, TarArchiveOptions, ZipArchiveOptions} from './core/types';
 import {looksLikeGlob} from './core/utils';
-import {NativeZip} from './zip/NativeZip';
 import {NativeTar} from './tar/NativeTar';
+import {NativeZip} from './zip/NativeZip';
 
-export {COMPRESSION_LEVEL} from './core/types';
-export type {ZipArchiveOptions} from './core/types';
-export type {TarArchiveOptions} from './core/types';
+export type {TarArchiveOptions, ZipArchiveOptions} from './core/types';
+
+export const COMPRESSION_LEVEL = {
+    uncompressed: 'uncompressed',
+    medium: 'medium',
+    high: 'high'
+} as const satisfies Record<COMPRESSION_LEVELS, string>;
 
 /**
  * High-level facade class that provides ZIP/TAR creation helpers.
@@ -41,7 +44,7 @@ export class ZipAFolder {
         const statConcurrency = options.statConcurrency ?? 4;
 
         // Resolve compression/store/zlib mapping.
-        const zipStore = options.store === true || options.compression === COMPRESSION_LEVEL.uncompressed;
+        const zipStore = options.store === true || options.compression === 'uncompressed';
 
         const zlibOptions: zlib.ZlibOptions | undefined = {
             ...(options.zlib || {})
@@ -49,19 +52,19 @@ export class ZipAFolder {
 
         if (!zipStore && options.compression !== undefined) {
             switch (options.compression) {
-                case COMPRESSION_LEVEL.medium:
+                case 'medium':
                     if (zlibOptions.level === undefined) {
                         zlibOptions.level = zlib.constants.Z_DEFAULT_COMPRESSION;
                     }
                     break;
-                case COMPRESSION_LEVEL.high:
+                case 'high':
                     if (zlibOptions.level === undefined) {
                         zlibOptions.level = zlib.constants.Z_BEST_COMPRESSION;
                     }
                     break;
-                /* istanbul ignore next */
+                /* v8 ignore next 3 */
                 default:
-                    // defensive: invalid compression enum
+                    // defensive: invalid compression value
                     break;
             }
         }
@@ -81,7 +84,7 @@ export class ZipAFolder {
 
         if (isGlob) {
             // Glob mode: collect files relative to cwd, no directories.
-            entries = await collectGlobEntries(source, cwd, statConcurrency);
+            entries = await collectGlobEntries(source, cwd, statConcurrency, options.exclude);
             if (entries.length === 0) {
                 throw new Error('No glob match found');
             }
@@ -89,7 +92,6 @@ export class ZipAFolder {
             // Directory mode.
             const sourceDir = path.resolve(source);
             const st = await fs.promises.stat(sourceDir); // may throw ENOENT
-            /* istanbul ignore next */
             if (!st.isDirectory()) {
                 throw new Error('Source must be a directory when no glob pattern is used.');
             }
@@ -105,7 +107,7 @@ export class ZipAFolder {
                 }
             }
 
-            entries = await collectEntriesFromDirectory(sourceDir, statConcurrency);
+            entries = await collectEntriesFromDirectory(sourceDir, statConcurrency, options.exclude);
 
             // Mirror original zip-a-folder behavior: archive paths are
             // contents of source directory (no root folder), but we optionally
@@ -124,7 +126,7 @@ export class ZipAFolder {
         // Apply namePrependSlash: add leading "/" for all entry paths.
         if (options.namePrependSlash) {
             entries = entries.map((e) => {
-                /* istanbul ignore next */
+                /* v8 ignore next */
                 const rp = e.relativePath.startsWith('/') ? e.relativePath : '/' + e.relativePath;
                 return {...e, relativePath: rp};
             });
@@ -172,15 +174,13 @@ export class ZipAFolder {
         let entries: FileEntry[] = [];
 
         if (isGlob) {
-            entries = await collectGlobEntries(source, cwd, statConcurrency);
-            /* istanbul ignore next */
+            entries = await collectGlobEntries(source, cwd, statConcurrency, options.exclude);
             if (entries.length === 0) {
                 throw new Error('No glob match found');
             }
         } else {
             const sourceDir = path.resolve(source);
             const st = await fs.promises.stat(sourceDir); // may throw ENOENT
-            /* istanbul ignore next */
             if (!st.isDirectory()) {
                 throw new Error('Source must be a directory when no glob pattern is used.');
             }
@@ -196,12 +196,12 @@ export class ZipAFolder {
                 }
             }
 
-            entries = await collectEntriesFromDirectory(sourceDir, statConcurrency);
+            entries = await collectEntriesFromDirectory(sourceDir, statConcurrency, options.exclude);
         }
 
         // Determine gzip settings from options + compression level.
         let gzipEnabled = options.gzip;
-        if (options.compression === COMPRESSION_LEVEL.uncompressed) {
+        if (options.compression === 'uncompressed') {
             gzipEnabled = false;
         } else if (gzipEnabled === undefined) {
             // Default: gzip if not explicitly disabled and not explicitly uncompressed.
@@ -212,17 +212,17 @@ export class ZipAFolder {
 
         if (gzipEnabled && options.compression !== undefined) {
             switch (options.compression) {
-                case COMPRESSION_LEVEL.medium:
+                case 'medium':
                     if (gzipOptions.level === undefined) {
                         gzipOptions.level = zlib.constants.Z_DEFAULT_COMPRESSION;
                     }
                     break;
-                case COMPRESSION_LEVEL.high:
+                case 'high':
                     if (gzipOptions.level === undefined) {
                         gzipOptions.level = zlib.constants.Z_BEST_COMPRESSION;
                     }
                     break;
-                /* istanbul ignore next */
+                /* v8 ignore next 2 */
                 default:
                     break;
             }
@@ -264,7 +264,7 @@ export class ZipAFolder {
             const finishTargetRaw = gzipEnabled ? finalOut : tarDestination;
             // Explicitly treat this as a NodeJS-style writable stream.
             const finishTarget = finishTargetRaw as NodeJS.WritableStream;
-            /* istanbul ignore next */
+            /* v8 ignore next 4 */
             const onError = (err: Error) => {
                 cleanup();
                 reject(err);

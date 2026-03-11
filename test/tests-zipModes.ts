@@ -1,8 +1,8 @@
-import {describe, expect, it} from '@jest/globals';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {PassThrough} from 'stream';
+import {describe, expect, it} from 'vitest';
 import {NativeZip} from '../lib/zip/NativeZip'; // adjust path if needed
 
 // Helper: parse central directory entries from a zip Buffer.
@@ -101,5 +101,19 @@ describe('ZIP mode and version fields', () => {
             // cleanup
             fs.rmSync(tmp, {recursive: true, force: true});
         }
+    });
+
+    it('addDirectoryEntry: adds trailing slash when archivePath does not end with /', async () => {
+        const zip = new NativeZip();
+        // pass path WITHOUT trailing slash – the method must normalise it
+        zip.addDirectoryEntry('mydir', new Date(), 0o755);
+
+        const buf = await zipToBuffer(zip);
+        const entries = parseCentralDirectory(buf);
+
+        expect(entries.length).toBe(1);
+        // The stored name must end with '/'
+        expect(entries[0].name.endsWith('/')).toBe(true);
+        expect(entries[0].name).toBe('mydir/');
     });
 });

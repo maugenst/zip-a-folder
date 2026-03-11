@@ -20,11 +20,33 @@ Everything is implemented **natively** without JS zip/tar libraries.
 
 ---
 
-## ⚠️ Incompatible Changes
+## Table of Contents
+
+- [Incompatible Changes](#incompatible-changes)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Create a ZIP file](#create-a-zip-file)
+  - [Create a GZIP-compressed TAR file](#create-a-gzip-compressed-tar-file-tgz)
+- [Compression Handling](#compression-handling)
+- [ZIP Options](#zip-options)
+- [TAR / TGZ Options](#tar--tgz-options)
+- [Custom Write Streams](#custom-write-streams)
+- [Glob Handling](#glob-handling)
+- [Destination Path Handling (destPath)](#destination-path-handling-destpath)
+- [Excluding Files and Directories (exclude)](#excluding-files-and-directories-exclude)
+- [Module Import Structure](#module-import-structure)
+- [Native Implementation Notes](#native-implementation-notes)
+- [Unix Permissions Preservation in ZIP](#unix-permissions-preservation-in-zip)
+- [Running Tests](#running-tests)
+- [Thanks](#thanks)
+
+---
+
+## Incompatible Changes
 
 ### Version 2
 Added support for comma-separated glob lists.  
-This may change the behavior for cases previously interpreted as “folder only”.
+This may change the behavior for cases previously interpreted as "folder only".
 
 ### Version 3
 Dual-module support (CJS + ESM).
@@ -32,28 +54,33 @@ Dual-module support (CJS + ESM).
 ### Version 3.1
 Added support for `destPath` to control the internal path layout of created archives.
 
-### Version 4 (current)
+### Version 4
 A major rewrite using:
 - **Fully native ZIP writer** (no dependencies)
 - **Native TAR + gzip writer**
 - **ZIP64 support** for large archives
 - **Parallel statting** (`statConcurrency`)
 - **Strict internal path normalization** mirroring classic zip-a-folder behavior
-- **Native glob handling** via `glob`
+- **Native glob handling** via `tinyglobby`
+
+### Version 5 (current)
+- `COMPRESSION_LEVEL` is now a plain `const` object whose values are **string literals** (`'uncompressed'`, `'medium'`, `'high'`) instead of a numeric enum.  
+  The public API (`COMPRESSION_LEVEL.high`, etc.) is unchanged — only the underlying type changed from a TypeScript `enum` to a `const satisfies` object. See [PR #70](https://github.com/maugenst/zip-a-folder/pull/70) by [@schplitt](https://github.com/schplitt).
+- Added `exclude` option — an array of glob patterns for files/directories to omit from the archive. See [issue #65](https://github.com/maugenst/zip-a-folder/issues/65) by [@Pomax](https://github.com/Pomax).
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 npm install zip-a-folder
-````
+```
 
 ---
 
-# 🚀 Usage
+## Usage
 
-## Create a ZIP file
+### Create a ZIP file
 
 ```js
 import { zip } from 'zip-a-folder';
@@ -61,7 +88,7 @@ import { zip } from 'zip-a-folder';
 await zip('/path/to/folder', '/path/to/archive.zip');
 ```
 
-## Create a GZIP-compressed TAR file (`.tgz`)
+### Create a GZIP-compressed TAR file (`.tgz`)
 
 ```js
 import { tar } from 'zip-a-folder';
@@ -71,7 +98,7 @@ await tar('/path/to/folder', '/path/to/archive.tgz');
 
 ---
 
-# 🎚 Compression Handling
+## Compression Handling
 
 Supported compression levels:
 
@@ -81,19 +108,22 @@ COMPRESSION_LEVEL.medium        // balanced
 COMPRESSION_LEVEL.uncompressed  // STORE for zip, no-gzip for tar
 ```
 
+> **v5:** `COMPRESSION_LEVEL` is now a `const` object with **string** values (`'high'`, `'medium'`, `'uncompressed'`).  
+> The `compression` option accepts either the constant (`COMPRESSION_LEVEL.high`) or the plain string (`'high'`) directly.
+
 Example:
 
 ```js
 import { zip, COMPRESSION_LEVEL } from 'zip-a-folder';
 
 await zip('/path/to/folder', '/path/to/archive.zip', {
-    compression: COMPRESSION_LEVEL.medium
+    compression: COMPRESSION_LEVEL.medium  // or just 'medium'
 });
 ```
 
 ---
 
-# ✨ ZIP Options
+## ZIP Options
 
 | Option              | Type          | Description                          |
 | ------------------- | ------------- | ------------------------------------ |
@@ -105,6 +135,7 @@ await zip('/path/to/folder', '/path/to/archive.zip', {
 | `zlib`              | `ZlibOptions` | Passed directly to `zlib.deflateRaw` |
 | `statConcurrency`   | `number`      | Parallel `stat` workers (default: 4) |
 | `destPath`          | `string`      | Prefix inside the archive (>=3.1)    |
+| `exclude`           | `string[]`    | Glob patterns for paths to omit      |
 | `customWriteStream` | `WriteStream` | Manually handle output               |
 
 Example:
@@ -122,13 +153,14 @@ await zip('/dir', '/archive.zip', {
 
 ---
 
-# 📦 TAR / TGZ Options
+## TAR / TGZ Options
 
-| Option            | Type          | Description                 |
-| ----------------- | ------------- | --------------------------- |
-| `gzip`            | `boolean`     | Enable gzip compression     |
-| `gzipOptions`     | `ZlibOptions` | Passed to `zlib.createGzip` |
-| `statConcurrency` | `number`      | Parallel `stat` workers     |
+| Option              | Type          | Description                 |
+| ------------------- | ------------- | --------------------------- |
+| `gzip`              | `boolean`     | Enable gzip compression     |
+| `gzipOptions`       | `ZlibOptions` | Passed to `zlib.createGzip` |
+| `statConcurrency`   | `number`      | Parallel `stat` workers     |
+| `exclude`           | `string[]`    | Glob patterns to omit       |
 
 Example:
 
@@ -141,7 +173,7 @@ await tar('/dir', '/archive.tgz', {
 
 ---
 
-# 🔧 Custom Write Streams
+## Custom Write Streams
 
 ZIP and TAR can be written into **any stream**.
 If `customWriteStream` is used, the `targetFilePath` can be empty or undefined.
@@ -158,11 +190,11 @@ await zip('/path/to/folder', undefined, { customWriteStream: ws });
 zip-a-folder does *not* validate custom streams. You must ensure:
 
 * parent directory exists
-* you’re not writing into the source directory (to avoid recursion)
+* you're not writing into the source directory (to avoid recursion)
 
 ---
 
-# 🔍 Glob Handling
+## Glob Handling
 
 The first parameter may be:
 
@@ -185,7 +217,7 @@ Error: No glob match found
 
 ---
 
-# 🗂 Destination Path Handling (`destPath`)
+## Destination Path Handling (`destPath`)
 
 Adds a prefix *inside* the archive:
 
@@ -200,11 +232,11 @@ data/file1.txt
 data/subdir/file2.txt
 ```
 
-## Directory Root Inclusion Semantics
+### Directory Root Inclusion Semantics
 
 When passing a directory path as the first argument (e.g. `zip('/path/to/folder', '/archive.zip')`), the archive by default contains the *contents* of that directory at the archive root (i.e. you will see the files inside `folder/`, not a top-level `folder/` directory itself).
 
-### Include the directory itself
+#### Include the directory itself
 If you want the archive to unpack into the named folder (so the top level of the archive contains `folder/`), set `destPath` to that folder name plus a trailing slash:
 
 ```ts
@@ -219,7 +251,7 @@ folder/file1.txt
 folder/sub/file2.txt
 ```
 
-## Summary
+### Summary
 - Default: directory contents only (no enclosing folder)  
 - To include the folder: use `destPath: '<dirname>/'`
 
@@ -227,19 +259,69 @@ This applies equally to `tar()`.
 
 ---
 
-# 🎯 Native Implementation Notes (New in v4)
+## Excluding Files and Directories (`exclude`)
+
+The `exclude` option accepts an array of **picomatch-style glob patterns**.  
+Matching entries (files and directories) are omitted from the archive entirely —  
+when a directory is excluded its entire subtree is skipped.
+
+```js
+import { zip } from 'zip-a-folder';
+
+const packed = await zip('/path/to/project', '/path/to/archive.zip', {
+  exclude: [
+    // dot-files (.env, .DS_Store, …)
+    '**/.*',
+    // dot-directories (.git, .vscode, …) and their contents
+    '**/.*/**',
+    // build output and dependencies
+    'dist/**',
+    'dist/',
+    'node_modules/**',
+    'node_modules/',
+  ]
+});
+```
+
+> **Notes:**
+> - `exclude` is applied to **directory sources** and **glob sources** alike.
+> - For glob sources, the patterns are passed as additional `ignore` entries to tinyglobby.
+> - Patterns are matched against **relative paths** inside the source directory (POSIX-style).
+> - To exclude a whole directory tree, add both `dirname/` and `dirname/**` (or just `dirname/**`).
+
+Inspired by [issue #65](https://github.com/maugenst/zip-a-folder/issues/65) reported by [@Pomax](https://github.com/Pomax).
+
+---
+
+## Module Import Structure
+
+> **Note:** As of v4 and the modernized build, all code is bundled into a single entry file. Do not import submodules (e.g. `dist/lib/mjs/core/types`). Always import from the main entry point:
+
+```js
+import { zip, tar, COMPRESSION_LEVEL } from 'zip-a-folder';
+```
+
+If you need types, import from the main entry point as well:
+
+```js
+import type { ZipArchiveOptions, TarArchiveOptions } from 'zip-a-folder';
+```
+
+---
+
+## Native Implementation Notes
 
 * ZIP and TAR are written using **pure Node.js** (`zlib`, raw buffering)
 * ZIP64 support included
 * File system scanning performed with a **parallel stat queue**
-* Globs handled via the standardized **glob** package
+* Globs handled via the **tinyglobby** package
 * Archive layout matches the original zip-a-folder for compatibility
 * ZIP writer supports dependency-free deflate and manual header construction
 * TAR writer produces POSIX ustar format with proper 512-byte block alignment
 
 ---
 
-## 🛠️ Unix Permissions Preservation in ZIP (v4.x)
+## Unix Permissions Preservation in ZIP
 
 A recent contribution restored correct handling of file modes for Unix systems inside ZIP archives:
 
@@ -259,23 +341,19 @@ Automated tests were added to validate:
 
 ---
 
-# 🧪 Running Tests
+## Running Tests
 
-Tests are written in **Jest**:
+Tests are written in **Vitest** with full coverage (100% statements/branches/functions/lines):
 
 ```bash
 npm test
 ```
 
-A coverage report is included:
-
-```bash
-npm test -- --coverage
-```
+Coverage is reported automatically via `@vitest/coverage-v8`.
 
 ---
 
-# ❤️ Thanks
+## Thanks
 
 Special thanks to contributors:
 
@@ -289,5 +367,7 @@ Special thanks to contributors:
 * @karan-gaur
 * @malthe
 * @nesvet
+* @schplitt – string-literal compression levels refactor ([PR #70](https://github.com/maugenst/zip-a-folder/pull/70))
+* @Pomax – `exclude` option feature request ([issue #65](https://github.com/maugenst/zip-a-folder/issues/65))
 
 Additional thanks to everyone helping shape the native rewrite.

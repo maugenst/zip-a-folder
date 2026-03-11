@@ -57,7 +57,6 @@ export class NativeTar {
      */
     public async addDirectory(entry: FileEntry): Promise<void> {
         let name = entry.relativePath.replace(/\\/g, '/');
-        /* istanbul ignore next */
         if (!name.endsWith('/')) {
             name += '/';
         }

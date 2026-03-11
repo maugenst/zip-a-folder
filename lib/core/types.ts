@@ -4,11 +4,7 @@ import * as fs from 'fs';
 /**
  * Compression levels used as convenience presets for zlib/gzip.
  */
-export enum COMPRESSION_LEVEL {
-    uncompressed = 0,
-    medium = 1,
-    high = 2
-}
+export type COMPRESSION_LEVELS = 'uncompressed' | 'medium' | 'high';
 
 /**
  * Basic core options shared by ZIP and TAR archives.
@@ -20,6 +16,19 @@ export type CoreOptions = {
      * Default is 4.
      */
     statConcurrency?: number;
+
+    /**
+     * Glob patterns for files and directories to exclude from the archive.
+     * Patterns are matched against relative paths inside the source directory.
+     * Supports the same syntax as tinyglobby (picomatch-style globs).
+     *
+     * Example: exclude dot-files, dot-directories, and node_modules:
+     * ```ts
+     * exclude: ['**\/.*', '**\/.*\/**', 'node_modules\/**']
+     * ```
+     * Only applied for directory sources (not globs – for globs use negative patterns instead).
+     */
+    exclude?: string[];
 };
 
 /**
@@ -61,7 +70,7 @@ export type ZipArchiveOptions = CoreOptions & {
      *  - uncompressed => store/no compression
      *  - medium/high  => DEFLATE with suitable zlib level
      */
-    compression?: COMPRESSION_LEVEL;
+    compression?: COMPRESSION_LEVELS;
 };
 
 /**
@@ -77,7 +86,7 @@ export type TarArchiveOptions = CoreOptions & {
     customWriteStream?: fs.WriteStream;
 
     /** Convenience compression level, mapped onto gzip level. */
-    compression?: COMPRESSION_LEVEL;
+    compression?: COMPRESSION_LEVELS;
 };
 
 /**

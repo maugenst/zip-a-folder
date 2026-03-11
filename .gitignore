@@ -1,7 +1,6 @@
 # OS files
 Thumbs.db
 .DS_Store
-.nyc_output
 
 # IDE files
 .idea
@@ -10,15 +9,19 @@ Thumbs.db
 logs
 log
 *.log
-
-node_modules
 npm-debug.log
-/.DS_Store
 
+# Dependencies
+node_modules
+
+# Build output
+dist
+
+# Test artifacts
 test/*.zip
 test/*.tgz
 test/*.tar
 test/largeFolder
 
+# Coverage
 coverage
-.coveralls.yml

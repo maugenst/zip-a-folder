@@ -1,8 +1,8 @@
 // src/core/FileCollector.ts
 import * as fs from 'fs';
 import * as path from 'path';
-import {FileEntry} from './types';
 import {globSync} from 'tinyglobby';
+import {FileEntry} from './types';
 
 /**
  * Recursively collect entries (files + directories) under a directory,
@@ -10,50 +10,62 @@ import {globSync} from 'tinyglobby';
  *
  * - The root directory itself is NOT returned as an entry.
  * - Directory entries have relativePath ending with "/".
+ * - Entries matching any pattern in `exclude` are omitted (along with their children).
  */
-export async function collectEntriesFromDirectory(rootDir: string, statConcurrency = 4): Promise<FileEntry[]> {
+export async function collectEntriesFromDirectory(
+    rootDir: string,
+    statConcurrency = 4,
+    exclude?: string[]
+): Promise<FileEntry[]> {
     const root = path.resolve(rootDir);
     const entries: FileEntry[] = [];
 
-    const dirQueue: {fsPath: string; relPath: string}[] = [{fsPath: root, relPath: ''}];
+    // Use tinyglobby to enumerate all paths (files + dirs), respecting the
+    // exclude list via the built-in `ignore` option.
+    const relPaths = globSync('**/*', {
+        cwd: root,
+        onlyFiles: false,
+        dot: true,
+        ignore: exclude
+    });
 
     statConcurrency = Math.max(1, statConcurrency | 0);
+    let index = 0;
 
     const worker = async () => {
         while (true) {
-            const item = dirQueue.shift();
-            if (!item) {
+            const i = index++;
+            if (i >= relPaths.length) {
                 break;
             }
 
-            const dirents = await fs.promises.readdir(item.fsPath, {withFileTypes: true});
+            const rel = relPaths[i];
+            const fsPath = path.join(root, rel);
+            const stat = await fs.promises.lstat(fsPath);
 
-            for (const d of dirents) {
-                const childFsPath = path.join(item.fsPath, d.name);
-                const rel = item.relPath ? path.posix.join(item.relPath, d.name) : d.name;
-
-                const stat = await fs.promises.stat(childFsPath);
-
-                if (d.isDirectory()) {
-                    /* istanbul ignore next */
-                    const relDirPath = rel.endsWith('/') ? rel : rel + '/';
-                    entries.push({
-                        fsPath: childFsPath,
-                        relativePath: relDirPath.replace(/\\/g, '/'),
-                        isDirectory: true,
-                        stat
-                    });
-                    dirQueue.push({fsPath: childFsPath, relPath: rel});
-                } else if (d.isFile()) {
-                    entries.push({
-                        fsPath: childFsPath,
-                        relativePath: rel.replace(/\\/g, '/'),
-                        isDirectory: false,
-                        stat
-                    });
-                }
-                // symlinks / others ignored
+            // Skip symlinks (same behavior as original readdir-based walker)
+            if (stat.isSymbolicLink()) {
+                continue;
             }
+
+            if (stat.isDirectory()) {
+                /* v8 ignore next */
+                const relDirPath = rel.endsWith('/') ? rel : rel + '/';
+                entries.push({
+                    fsPath,
+                    relativePath: relDirPath.replace(/\\/g, '/'),
+                    isDirectory: true,
+                    stat
+                });
+            } else if (stat.isFile()) {
+                entries.push({
+                    fsPath,
+                    relativePath: rel.replace(/\\/g, '/'),
+                    isDirectory: false,
+                    stat
+                });
+            }
+            // other special files ignored
         }
     };
 
@@ -65,11 +77,16 @@ export async function collectEntriesFromDirectory(rootDir: string, statConcurren
 /**
  * Collect file entries from one or more glob patterns, relative to a given cwd.
  *
- * - Uses the "glob" package.
+ * - Uses the "tinyglobby" package.
  * - Only files are returned (no explicit directory entries).
  * - Returns [] when there is no match (caller will throw "No glob match found").
  */
-export async function collectGlobEntries(patterns: string, cwd: string, statConcurrency = 4): Promise<FileEntry[]> {
+export async function collectGlobEntries(
+    patterns: string,
+    cwd: string,
+    statConcurrency = 4,
+    exclude?: string[]
+): Promise<FileEntry[]> {
     const patternList = patterns
         .split(',')
         .map((p) => p.trim())
@@ -79,18 +96,18 @@ export async function collectGlobEntries(patterns: string, cwd: string, statConc
 
     for (const pattern of patternList) {
         try {
-            // Use synchronous glob to be compatible with older glob versions.
             const matches = globSync(pattern, {
                 cwd,
                 onlyFiles: true,
                 dot: false,
+                ignore: exclude
             });
 
             for (const rel of matches) {
                 matchedRelPaths.add(rel.replace(/\\/g, '/'));
             }
+            /* v8 ignore next 4 */
         } catch {
-            /* istanbul ignore next */
             // Ignore glob internal errors; if nothing matches overall,
             // caller will throw "No glob match found".
         }
@@ -116,7 +133,7 @@ export async function collectGlobEntries(patterns: string, cwd: string, statConc
             const rel = relPaths[i];
             const abs = path.resolve(cwd, rel);
             const stat = await fs.promises.stat(abs);
-            /* istanbul ignore next */
+            /* v8 ignore next 3 */
             if (!stat.isFile()) {
                 continue;
             }
