@@ -7,17 +7,20 @@
 
 # zip-a-folder
 
-A fast, dependency-free ZIP/TAR/TGZ creation library using **native Node.js compression (zlib)**, supporting:
+Compress a folder into ZIP/TAR/TGZ/BR/7z. This library is trying to with as less dependencies as possible to 
+other libraries. For ZIP, TAR and Brotli archives it uses the **native Node.js compression (zlib)**. 
+7z uses the pure JavaScript `lzma-js` library for LZMA compression.
+
+Feature overview:
 
 - ZIP archives (with optional ZIP64)
-- TAR archives (optionally gzipped)
+- TAR archives (optionally gzipped or brotli-compressed)
+- **7z archives** with LZMA compression (via lzma-js)
+- Fine-grained zlib/gzip/brotli/LZMA control
 - Globs (single or comma-separated)
 - Parallel directory scanning (`statConcurrency`)
 - Custom write streams
 - Compression presets (`high`, `medium`, `uncompressed`)
-- Fine-grained zlib/gzip control
-
-Everything is implemented **natively** without JS zip/tar libraries.
 
 ---
 
@@ -31,6 +34,7 @@ Everything is implemented **natively** without JS zip/tar libraries.
 - [Compression Handling](#compression-handling)
 - [ZIP Options](#zip-options)
 - [TAR / TGZ Options](#tar--tgz-options)
+- [7z Options](#7z-options)
 - [Custom Write Streams](#custom-write-streams)
 - [Glob Handling](#glob-handling)
 - [Destination Path Handling (destPath)](#destination-path-handling-destpath)
@@ -160,23 +164,120 @@ await zip('/dir', '/archive.zip', {
 
 ---
 
-## TAR / TGZ Options
+## TAR / TGZ / TAR.BR Options
 
-| Option              | Type          | Description                 |
-| ------------------- | ------------- | --------------------------- |
-| `gzip`              | `boolean`     | Enable gzip compression     |
-| `gzipOptions`       | `ZlibOptions` | Passed to `zlib.createGzip` |
-| `statConcurrency`   | `number`      | Parallel `stat` workers     |
-| `exclude`           | `string[]`    | Glob patterns to omit       |
+| Option              | Type                       | Description                                                      |
+| ------------------- | -------------------------- | ---------------------------------------------------------------- |
+| `compressionType`   | `'none' \| 'gzip' \| 'brotli'` | Compression algorithm (default: `'gzip'`)                    |
+| `gzip`              | `boolean`                  | Enable gzip compression (deprecated, use `compressionType`)      |
+| `gzipOptions`       | `ZlibOptions`              | Passed to `zlib.createGzip`                                      |
+| `brotliOptions`     | `BrotliOptions`            | Passed to `zlib.createBrotliCompress`                            |
+| `statConcurrency`   | `number`                   | Parallel `stat` workers                                          |
+| `exclude`           | `string[]`                 | Glob patterns to omit                                            |
+| `compression`       | `COMPRESSION_LEVEL`        | Convenience preset (`high`, `medium`, `uncompressed`)            |
 
-Example:
+### Gzip Example
 
 ```js
 await tar('/dir', '/archive.tgz', {
-    gzip: true,
+    compressionType: 'gzip',
     gzipOptions: { level: 6 }
 });
 ```
+
+### Brotli Example
+
+Brotli compression is supported natively via Node.js `zlib` module (available since Node.js v10.16.0).
+Brotli typically provides better compression ratios than gzip, especially for text-based content.
+
+```js
+import { tar, COMPRESSION_LEVEL } from 'zip-a-folder';
+import * as zlib from 'zlib';
+
+// Simple brotli compression
+await tar('/dir', '/archive.tar.br', {
+    compressionType: 'brotli'
+});
+
+// With compression level preset
+await tar('/dir', '/archive.tar.br', {
+    compressionType: 'brotli',
+    compression: COMPRESSION_LEVEL.high
+});
+
+// With custom brotli options
+await tar('/dir', '/archive.tar.br', {
+    compressionType: 'brotli',
+    brotliOptions: {
+        params: {
+            [zlib.constants.BROTLI_PARAM_QUALITY]: 11,  // 0-11, higher = better compression
+            [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT
+        }
+    }
+});
+```
+
+### Uncompressed TAR
+
+```js
+await tar('/dir', '/archive.tar', {
+    compressionType: 'none'
+});
+```
+
+---
+
+## 7z Options
+
+Create 7z archives with LZMA compression using the `sevenZip()` function.
+
+| Option              | Type               | Description                                           |
+| ------------------- | ------------------ | ----------------------------------------------------- |
+| `compression`       | `COMPRESSION_LEVEL`| Convenience preset (`high`, `medium`, `uncompressed`) |
+| `compressionLevel`  | `number` (1-9)     | LZMA compression level (default: 5)                   |
+| `statConcurrency`   | `number`           | Parallel `stat` workers (default: 4)                  |
+| `exclude`           | `string[]`         | Glob patterns to omit                                 |
+| `customWriteStream` | `WriteStream`      | Manually handle output                                |
+
+### Basic Example
+
+```js
+import { sevenZip } from 'zip-a-folder';
+
+await sevenZip('/path/to/folder', '/path/to/archive.7z');
+```
+
+### With Compression Level
+
+```js
+import { sevenZip, COMPRESSION_LEVEL } from 'zip-a-folder';
+
+// Using preset
+await sevenZip('/dir', '/archive.7z', {
+    compression: COMPRESSION_LEVEL.high
+});
+
+// Using explicit level (1-9)
+await sevenZip('/dir', '/archive.7z', {
+    compressionLevel: 9
+});
+```
+
+### With Glob Patterns
+
+```js
+await sevenZip('src/**/*.ts', '/archive.7z');
+```
+
+### With Exclusions
+
+```js
+await sevenZip('/project', '/archive.7z', {
+    exclude: ['node_modules/**', '**/*.log']
+});
+```
+
+> **Note:** 7z archives use LZMA compression via the `lzma-js` library. This provides excellent compression ratios, especially for text-based content. The 7z format stores files as a solid archive, meaning all file data is concatenated and compressed together for better compression efficiency.
 
 ---
 

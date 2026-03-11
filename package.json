@@ -1,7 +1,7 @@
 {
     "name": "zip-a-folder",
-    "version": "5.0.1",
-    "description": "Zip/Tar a complete folder or a glob list into a zip/tgz file",
+    "version": "6.0.0",
+    "description": "Compress a complete folder or a glob list into a zip/tgz/br/7z file",
     "author": "Marius Augenstein",
     "license": "MIT",
     "type": "module",
@@ -51,6 +51,7 @@
         "vitest": "^3.0.0"
     },
     "dependencies": {
+        "lzma": "^2.3.2",
         "tinyglobby": "^0.2.15"
     }
 }

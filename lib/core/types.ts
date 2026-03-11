@@ -1,10 +1,16 @@
 // src/core/types.ts
 import * as fs from 'fs';
+import * as zlib from 'zlib';
 
 /**
- * Compression levels used as convenience presets for zlib/gzip.
+ * Compression levels used as convenience presets for zlib/gzip/brotli.
  */
 export type COMPRESSION_LEVELS = 'uncompressed' | 'medium' | 'high';
+
+/**
+ * Compression type for TAR archives.
+ */
+export type TAR_COMPRESSION_TYPE = 'none' | 'gzip' | 'brotli';
 
 /**
  * Basic core options shared by ZIP and TAR archives.
@@ -74,18 +80,54 @@ export type ZipArchiveOptions = CoreOptions & {
 };
 
 /**
- * Options for creating TAR (and optionally gzipped) archives.
+ * Options for creating TAR (and optionally compressed) archives.
+ * Supports gzip and brotli compression natively via Node.js zlib module.
  */
 export type TarArchiveOptions = CoreOptions & {
-    /** Compress the tar archive using gzip. */
+    /**
+     * Compress the tar archive using gzip.
+     * @deprecated Use `compressionType: 'gzip'` instead. This option is kept for backward compatibility.
+     */
     gzip?: boolean;
     /** Passed to zlib to control gzip compression. */
-    gzipOptions?: import('zlib').ZlibOptions;
+    gzipOptions?: zlib.ZlibOptions;
+
+    /**
+     * Compression type for the tar archive.
+     * - 'none': No compression (plain .tar file)
+     * - 'gzip': Gzip compression (.tar.gz or .tgz file)
+     * - 'brotli': Brotli compression (.tar.br file)
+     * 
+     * If not specified and `gzip` is not set, defaults to 'gzip'.
+     * If `compression` is set to 'uncompressed', this is ignored and no compression is applied.
+     */
+    compressionType?: TAR_COMPRESSION_TYPE;
+
+    /**
+     * Brotli compression options passed to zlib.createBrotliCompress().
+     * Only used when compressionType is 'brotli'.
+     * 
+     * @example
+     * ```ts
+     * brotliOptions: {
+     *   params: {
+     *     [zlib.constants.BROTLI_PARAM_QUALITY]: 11, // 0-11, higher = better compression
+     *     [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT
+     *   }
+     * }
+     * ```
+     */
+    brotliOptions?: zlib.BrotliOptions;
 
     /** Custom writable stream; if provided, targetFilePath may be empty/undefined. */
     customWriteStream?: fs.WriteStream;
 
-    /** Convenience compression level, mapped onto gzip level. */
+    /**
+     * Convenience compression level, mapped onto gzip/brotli level.
+     * - 'uncompressed': No compression (overrides compressionType)
+     * - 'medium': Default compression level
+     * - 'high': Best compression level
+     */
     compression?: COMPRESSION_LEVELS;
 };
 
@@ -101,4 +143,29 @@ export type FileEntry = {
     isDirectory: boolean;
     /** Node.js fs Stats object for this entry. */
     stat: fs.Stats;
+};
+
+/**
+ * Options for creating 7z archives.
+ * Uses LZMA compression via the lzma-js library.
+ */
+export type SevenZipArchiveOptions = CoreOptions & {
+    /**
+     * LZMA compression level (1-9).
+     * - 1: Fastest compression, larger file
+     * - 5: Balanced (default)
+     * - 9: Best compression, slower
+     */
+    compressionLevel?: number;
+
+    /** Custom writable stream; if provided, targetFilePath may be empty/undefined. */
+    customWriteStream?: fs.WriteStream;
+
+    /**
+     * Convenience compression level preset.
+     * - 'uncompressed': Not applicable for 7z (minimum compression used)
+     * - 'medium': LZMA level 5
+     * - 'high': LZMA level 9
+     */
+    compression?: COMPRESSION_LEVELS;
 };

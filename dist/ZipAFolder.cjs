@@ -28,6 +28,8 @@ path = __toESM(path);
 let zlib = require("zlib");
 zlib = __toESM(zlib);
 let tinyglobby = require("tinyglobby");
+let lzma = require("lzma");
+lzma = __toESM(lzma);
 
 //#region lib/core/FileCollector.ts
 /**
@@ -129,7 +131,7 @@ async function collectGlobEntries(patterns, cwd, statConcurrency = 4, exclude) {
 /**
 * Precomputed CRC32 table for efficient checksum calculation.
 */
-const CRC32_TABLE = (() => {
+const CRC32_TABLE$1 = (() => {
 	const table = new Uint32Array(256);
 	for (let i = 0; i < 256; i++) {
 		let c = i;
@@ -146,7 +148,7 @@ function crc32(buf) {
 	let crc = 4294967295;
 	for (let i = 0; i < buf.length; i++) {
 		const byte = buf[i];
-		crc = CRC32_TABLE[(crc ^ byte) & 255] ^ crc >>> 8;
+		crc = CRC32_TABLE$1[(crc ^ byte) & 255] ^ crc >>> 8;
 	}
 	return (crc ^ 4294967295) >>> 0;
 }
@@ -219,6 +221,287 @@ function writeToStream(stream, data) {
 function looksLikeGlob(source) {
 	return /[*?[\]{},]/.test(source);
 }
+
+//#endregion
+//#region lib/7z/Native7z.ts
+/**
+* 7z archive format constants
+*/
+const SIGNATURE = Buffer.from([
+	55,
+	122,
+	188,
+	175,
+	39,
+	28
+]);
+const VERSION_MAJOR = 0;
+const VERSION_MINOR = 4;
+const kEnd = 0;
+const kHeader = 1;
+const kMainStreamsInfo = 4;
+const kFilesInfo = 5;
+const kPackInfo = 6;
+const kUnpackInfo = 7;
+const kSubStreamsInfo = 8;
+const kSize = 9;
+const kFolder = 11;
+const kCodersUnpackSize = 12;
+const kNumUnpackStream = 13;
+const kNames = 17;
+const kMTime = 20;
+const kAttributes = 21;
+const LZMA_CODEC_ID = Buffer.from([
+	3,
+	1,
+	1
+]);
+/**
+* CRC-32 calculation (same as used in ZIP)
+*/
+const CRC32_TABLE = [];
+for (let i = 0; i < 256; i++) {
+	let crc = i;
+	for (let j = 0; j < 8; j++) crc = crc & 1 ? 3988292384 ^ crc >>> 1 : crc >>> 1;
+	CRC32_TABLE[i] = crc >>> 0;
+}
+function crc32$1(data) {
+	let crc = 4294967295;
+	for (let i = 0; i < data.length; i++) crc = CRC32_TABLE[(crc ^ data[i]) & 255] ^ crc >>> 8;
+	return (crc ^ 4294967295) >>> 0;
+}
+/**
+* Simple 7z number encoding (used for headers)
+*/
+function encode7zNumber(value) {
+	if (value < 128) return Buffer.from([value]);
+	const buf = Buffer.alloc(9);
+	buf[0] = 255;
+	buf.writeBigUInt64LE(BigInt(value), 1);
+	return buf;
+}
+/**
+* Write Windows FILETIME (100-nanosecond intervals since 1601-01-01)
+*/
+function dateToFiletime(date) {
+	return (BigInt(date.getTime()) + 11644473600000n) * 10000n;
+}
+/**
+* Native 7z archive writer using pure JavaScript LZMA compression.
+*/
+var Native7z = class {
+	/**
+	* @param compressionLevel LZMA compression level 1-9 (default: 5)
+	*/
+	constructor(compressionLevel = 5) {
+		this.files = [];
+		this.compressionLevel = Math.max(1, Math.min(9, compressionLevel));
+	}
+	/**
+	* Add a file to the archive from filesystem.
+	*/
+	async addFile(entry) {
+		if (entry.isDirectory) return;
+		const data = await fs.promises.readFile(entry.fsPath);
+		const compressedData = await this.compressLzma(data);
+		this.files.push({
+			entry,
+			data,
+			compressedData
+		});
+	}
+	/**
+	* Compress data using LZMA.
+	*/
+	compressLzma(data) {
+		return new Promise((resolve, reject) => {
+			lzma.default.compress(data, this.compressionLevel, (result, error) => {
+				if (error || result instanceof Error) {
+					reject(error || result);
+					return;
+				}
+				const unsigned = result.map((b) => b < 0 ? b + 256 : b);
+				resolve(Buffer.from(unsigned));
+			});
+		});
+	}
+	/**
+	* Finalize and write the archive to a stream.
+	*/
+	async writeToStream(outStream) {
+		if (this.files.length === 0) throw new Error("Cannot create empty 7z archive");
+		const archiveData = await this.buildArchive();
+		return new Promise((resolve, reject) => {
+			outStream.on("error", reject);
+			outStream.on("finish", resolve);
+			outStream.write(archiveData, (err) => {
+				if (err) reject(err);
+				else outStream.end?.();
+			});
+		});
+	}
+	/**
+	* Build the complete 7z archive.
+	*/
+	async buildArchive() {
+		const packedData = Buffer.concat(this.files.map((f) => f.compressedData));
+		const header = this.buildHeader();
+		const compressedHeader = await this.compressLzma(header);
+		const nextHeaderOffset = BigInt(packedData.length);
+		const nextHeaderSize = BigInt(compressedHeader.length);
+		const nextHeaderCRC = crc32$1(compressedHeader);
+		const startHeader = Buffer.alloc(20);
+		startHeader.writeBigUInt64LE(nextHeaderOffset, 0);
+		startHeader.writeBigUInt64LE(nextHeaderSize, 8);
+		startHeader.writeUInt32LE(nextHeaderCRC, 16);
+		const startHeaderCRC = crc32$1(startHeader);
+		const signatureHeader = Buffer.alloc(32);
+		SIGNATURE.copy(signatureHeader, 0);
+		signatureHeader[6] = VERSION_MAJOR;
+		signatureHeader[7] = VERSION_MINOR;
+		signatureHeader.writeUInt32LE(startHeaderCRC, 8);
+		startHeader.copy(signatureHeader, 12);
+		return Buffer.concat([
+			signatureHeader,
+			packedData,
+			compressedHeader
+		]);
+	}
+	/**
+	* Build the 7z header with file metadata.
+	*/
+	buildHeader() {
+		const parts = [];
+		parts.push(Buffer.from([kHeader]));
+		parts.push(this.buildMainStreamsInfo());
+		parts.push(this.buildFilesInfo());
+		parts.push(Buffer.from([kEnd]));
+		return Buffer.concat(parts);
+	}
+	/**
+	* Build MainStreamsInfo section.
+	*/
+	buildMainStreamsInfo() {
+		const parts = [];
+		parts.push(Buffer.from([kMainStreamsInfo]));
+		parts.push(this.buildPackInfo());
+		parts.push(this.buildUnpackInfo());
+		parts.push(this.buildSubStreamsInfo());
+		parts.push(Buffer.from([kEnd]));
+		return Buffer.concat(parts);
+	}
+	/**
+	* Build PackInfo section (packed/compressed sizes).
+	*/
+	buildPackInfo() {
+		const parts = [];
+		parts.push(Buffer.from([kPackInfo]));
+		parts.push(encode7zNumber(0));
+		parts.push(encode7zNumber(this.files.length));
+		parts.push(Buffer.from([kSize]));
+		for (const file of this.files) parts.push(encode7zNumber(file.compressedData.length));
+		parts.push(Buffer.from([kEnd]));
+		return Buffer.concat(parts);
+	}
+	/**
+	* Build UnpackInfo section (codec and uncompressed sizes).
+	*/
+	buildUnpackInfo() {
+		const parts = [];
+		parts.push(Buffer.from([kUnpackInfo]));
+		parts.push(Buffer.from([kFolder]));
+		parts.push(encode7zNumber(this.files.length));
+		parts.push(Buffer.from([0]));
+		for (const _file of this.files) {
+			parts.push(Buffer.from([1]));
+			const coderFlags = LZMA_CODEC_ID.length;
+			parts.push(Buffer.from([coderFlags]));
+			parts.push(LZMA_CODEC_ID);
+		}
+		parts.push(Buffer.from([kCodersUnpackSize]));
+		for (const file of this.files) parts.push(encode7zNumber(file.data.length));
+		parts.push(Buffer.from([kEnd]));
+		return Buffer.concat(parts);
+	}
+	/**
+	* Build SubStreamsInfo section.
+	*/
+	buildSubStreamsInfo() {
+		const parts = [];
+		parts.push(Buffer.from([kSubStreamsInfo]));
+		parts.push(Buffer.from([kNumUnpackStream]));
+		for (let i = 0; i < this.files.length; i++) parts.push(encode7zNumber(1));
+		parts.push(Buffer.from([kEnd]));
+		return Buffer.concat(parts);
+	}
+	/**
+	* Build FilesInfo section (file names, attributes, times).
+	*/
+	buildFilesInfo() {
+		const parts = [];
+		parts.push(Buffer.from([kFilesInfo]));
+		parts.push(encode7zNumber(this.files.length));
+		parts.push(this.buildFileNames());
+		parts.push(this.buildMTimes());
+		parts.push(this.buildAttributes());
+		parts.push(Buffer.from([kEnd]));
+		return Buffer.concat(parts);
+	}
+	/**
+	* Build file names section (UTF-16LE encoded).
+	*/
+	buildFileNames() {
+		const parts = [];
+		parts.push(Buffer.from([kNames]));
+		const namesData = [];
+		for (const file of this.files) {
+			const name = file.entry.relativePath.replace(/\//g, "\\");
+			const nameBuffer = Buffer.from(name, "utf16le");
+			namesData.push(nameBuffer);
+			namesData.push(Buffer.from([0, 0]));
+		}
+		const allNames = Buffer.concat(namesData);
+		parts.push(encode7zNumber(allNames.length + 1));
+		parts.push(Buffer.from([0]));
+		parts.push(allNames);
+		return Buffer.concat(parts);
+	}
+	/**
+	* Build modification times section.
+	*/
+	buildMTimes() {
+		const parts = [];
+		parts.push(Buffer.from([kMTime]));
+		const dataSize = 2 + 8 * this.files.length;
+		parts.push(encode7zNumber(dataSize));
+		parts.push(Buffer.from([1]));
+		parts.push(Buffer.from([0]));
+		for (const file of this.files) {
+			const buf = Buffer.alloc(8);
+			buf.writeBigUInt64LE(dateToFiletime(file.entry.stat.mtime));
+			parts.push(buf);
+		}
+		return Buffer.concat(parts);
+	}
+	/**
+	* Build Windows attributes section.
+	*/
+	buildAttributes() {
+		const parts = [];
+		parts.push(Buffer.from([kAttributes]));
+		const dataSize = 2 + 4 * this.files.length;
+		parts.push(encode7zNumber(dataSize));
+		parts.push(Buffer.from([1]));
+		parts.push(Buffer.from([0]));
+		for (const file of this.files) {
+			const buf = Buffer.alloc(4);
+			const attr = file.entry.isDirectory ? 16 : 32;
+			buf.writeUInt32LE(attr);
+			parts.push(buf);
+		}
+		return Buffer.concat(parts);
+	}
+};
 
 //#endregion
 //#region lib/tar/NativeTar.ts
@@ -708,11 +991,12 @@ var ZipAFolder = class {
 			}
 			entries = await collectEntriesFromDirectory(sourceDir, statConcurrency, options.exclude);
 		}
-		let gzipEnabled = options.gzip;
-		if (options.compression === "uncompressed") gzipEnabled = false;
-		else if (gzipEnabled === void 0) gzipEnabled = true;
+		let compressionType = "gzip";
+		if (options.compression === "uncompressed") compressionType = "none";
+		else if (options.compressionType !== void 0) compressionType = options.compressionType;
+		else if (options.gzip !== void 0) compressionType = options.gzip ? "gzip" : "none";
 		const gzipOptions = { ...options.gzipOptions || {} };
-		if (gzipEnabled && options.compression !== void 0) switch (options.compression) {
+		if (compressionType === "gzip" && options.compression !== void 0) switch (options.compression) {
 			case "medium":
 				if (gzipOptions.level === void 0) gzipOptions.level = zlib.constants.Z_DEFAULT_COMPRESSION;
 				break;
@@ -721,23 +1005,40 @@ var ZipAFolder = class {
 				break;
 			default: break;
 		}
+		const brotliOptions = { ...options.brotliOptions || {} };
+		if (compressionType === "brotli" && options.compression !== void 0) {
+			if (!brotliOptions.params) brotliOptions.params = {};
+			if (brotliOptions.params[zlib.constants.BROTLI_PARAM_QUALITY] === void 0) switch (options.compression) {
+				case "medium":
+					brotliOptions.params[zlib.constants.BROTLI_PARAM_QUALITY] = 6;
+					break;
+				case "high":
+					brotliOptions.params[zlib.constants.BROTLI_PARAM_QUALITY] = zlib.constants.BROTLI_MAX_QUALITY;
+					break;
+				default: break;
+			}
+		}
 		if (!customWS && hasTargetPath) {
 			const parentDir = path.dirname(path.resolve(targetFilePath));
 			await fs.promises.stat(parentDir);
 		}
 		const finalOut = customWS ?? fs.createWriteStream(targetFilePath);
 		let tarDestination;
-		if (gzipEnabled) {
+		if (compressionType === "gzip") {
 			const gzipStream = zlib.createGzip(gzipOptions);
 			gzipStream.pipe(finalOut);
 			tarDestination = gzipStream;
+		} else if (compressionType === "brotli") {
+			const brotliStream = zlib.createBrotliCompress(brotliOptions);
+			brotliStream.pipe(finalOut);
+			tarDestination = brotliStream;
 		} else tarDestination = finalOut;
 		const tarWriter = new NativeTar(tarDestination);
 		for (const e of entries.filter((x) => x.isDirectory)) await tarWriter.addDirectory(e);
 		for (const e of entries.filter((x) => !x.isDirectory)) await tarWriter.addFile(e);
 		await tarWriter.finalize();
 		await new Promise((resolve, reject) => {
-			const finishTarget = gzipEnabled ? finalOut : tarDestination;
+			const finishTarget = compressionType !== "none" ? finalOut : tarDestination;
 			/* v8 ignore next 4 */
 			const onError = (err) => {
 				cleanup();
@@ -756,6 +1057,56 @@ var ZipAFolder = class {
 			tarDestination.end?.();
 		});
 	}
+	/**
+	* Create a 7z archive from a directory or glob using LZMA compression.
+	*
+	* @param source         Directory path OR glob pattern.
+	* @param targetFilePath Path to target .7z file. May be empty/undefined if customWriteStream is provided.
+	* @param options        7z/LZMA options.
+	*/
+	static async sevenZip(source, targetFilePath, options = {}) {
+		const customWS = options.customWriteStream;
+		const hasTargetPath = !!(targetFilePath && targetFilePath.length > 0);
+		if (!hasTargetPath && !customWS) throw new Error("You must either provide a target file path or a custom write stream to write to.");
+		const statConcurrency = options.statConcurrency ?? 4;
+		const cwd = process.cwd();
+		const isGlob = looksLikeGlob(source);
+		let entries = [];
+		if (isGlob) {
+			entries = await collectGlobEntries(source, cwd, statConcurrency, options.exclude);
+			if (entries.length === 0) throw new Error("No glob match found");
+		} else {
+			const sourceDir = path.resolve(source);
+			if (!(await fs.promises.stat(sourceDir)).isDirectory()) throw new Error("Source must be a directory when no glob pattern is used.");
+			if (hasTargetPath) {
+				const targetAbs = path.resolve(targetFilePath);
+				const targetDir = path.dirname(targetAbs);
+				const normalizedSourceDir = path.resolve(sourceDir);
+				if (targetDir === normalizedSourceDir || targetDir.startsWith(normalizedSourceDir + path.sep)) throw new Error("Source and target folder must be different.");
+			}
+			entries = await collectEntriesFromDirectory(sourceDir, statConcurrency, options.exclude);
+		}
+		let compressionLevel = options.compressionLevel ?? 5;
+		if (options.compression !== void 0) switch (options.compression) {
+			case "uncompressed":
+				compressionLevel = 1;
+				break;
+			case "medium":
+				compressionLevel = 5;
+				break;
+			case "high":
+				compressionLevel = 9;
+				break;
+		}
+		if (!customWS && hasTargetPath) {
+			const parentDir = path.dirname(path.resolve(targetFilePath));
+			await fs.promises.stat(parentDir);
+		}
+		const outStream = customWS ?? fs.createWriteStream(targetFilePath);
+		const sevenZWriter = new Native7z(compressionLevel);
+		for (const e of entries) await sevenZWriter.addFile(e);
+		await sevenZWriter.writeToStream(outStream);
+	}
 };
 /**
 * Convenience function: zip(...) directly.
@@ -769,9 +1120,17 @@ function zip(source, targetFilePath, options) {
 function tar(source, targetFilePath, options) {
 	return ZipAFolder.tar(source, targetFilePath, options ?? {});
 }
+/**
+* Convenience function: sevenZip(...) directly.
+* Creates a 7z archive using LZMA compression.
+*/
+function sevenZip(source, targetFilePath, options) {
+	return ZipAFolder.sevenZip(source, targetFilePath, options ?? {});
+}
 
 //#endregion
 exports.COMPRESSION_LEVEL = COMPRESSION_LEVEL;
 exports.ZipAFolder = ZipAFolder;
+exports.sevenZip = sevenZip;
 exports.tar = tar;
 exports.zip = zip;
