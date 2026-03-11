@@ -12,9 +12,10 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm run test
-      - run: curl -Ls -o codacy-coverage-reporter https://artifacts.codacy.com/bin/codacy-coverage-reporter/latest/codacy-coverage-reporter-linux
-      - run: chmod +x codacy-coverage-reporter
-      - run: ./codacy-coverage-reporter report -r coverage/lcov.info
+      - run:
+          name: Upload coverage to Codacy
+          command: |
+            bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r coverage/lcov.info
 
 workflows:
   version: 2
