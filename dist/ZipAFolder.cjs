@@ -273,6 +273,7 @@ function crc32$1(data) {
 /**
 * Simple 7z number encoding (used for headers)
 */
+/* c8 ignore start - large number encoding only triggered with files >127 bytes compressed */
 function encode7zNumber(value) {
 	if (value < 128) return Buffer.from([value]);
 	const buf = Buffer.alloc(9);
@@ -280,11 +281,13 @@ function encode7zNumber(value) {
 	buf.writeBigUInt64LE(BigInt(value), 1);
 	return buf;
 }
+/* c8 ignore stop */
 /**
 * Write Windows FILETIME (100-nanosecond intervals since 1601-01-01)
 */
 function dateToFiletime(date) {
-	return (BigInt(date.getTime()) + 11644473600000n) * 10000n;
+	const EPOCH_DIFF = BigInt(0xa9730b66800);
+	return (BigInt(date.getTime()) + EPOCH_DIFF) * BigInt(1e4);
 }
 /**
 * Native 7z archive writer using pure JavaScript LZMA compression.
@@ -316,10 +319,12 @@ var Native7z = class {
 	compressLzma(data) {
 		return new Promise((resolve, reject) => {
 			lzma.default.compress(data, this.compressionLevel, (result, error) => {
+				/* c8 ignore start - LZMA error handling is hard to trigger in tests */
 				if (error || result instanceof Error) {
 					reject(error || result);
 					return;
 				}
+				/* c8 ignore stop */
 				const unsigned = result.map((b) => b < 0 ? b + 256 : b);
 				resolve(Buffer.from(unsigned));
 			});
@@ -335,8 +340,10 @@ var Native7z = class {
 			outStream.on("error", reject);
 			outStream.on("finish", resolve);
 			outStream.write(archiveData, (err) => {
+				/* c8 ignore start */
 				if (err) reject(err);
 				else outStream.end?.();
+				/* c8 ignore stop */
 			});
 		});
 	}

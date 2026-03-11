@@ -97,7 +97,7 @@ export type TarArchiveOptions = CoreOptions & {
      * - 'none': No compression (plain .tar file)
      * - 'gzip': Gzip compression (.tar.gz or .tgz file)
      * - 'brotli': Brotli compression (.tar.br file)
-     * 
+     *
      * If not specified and `gzip` is not set, defaults to 'gzip'.
      * If `compression` is set to 'uncompressed', this is ignored and no compression is applied.
      */
@@ -106,7 +106,7 @@ export type TarArchiveOptions = CoreOptions & {
     /**
      * Brotli compression options passed to zlib.createBrotliCompress().
      * Only used when compressionType is 'brotli'.
-     * 
+     *
      * @example
      * ```ts
      * brotliOptions: {
