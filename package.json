@@ -1,6 +1,6 @@
 {
     "name": "zip-a-folder",
-    "version": "6.0.1",
+    "version": "6.1.0",
     "description": "Compress a complete folder or a glob list into a zip/tgz/br/7z file",
     "author": "Marius Augenstein",
     "license": "MIT",
@@ -16,6 +16,9 @@
         "README.md",
         "dist"
     ],
+    "bin": {
+        "zip-a-folder": "./dist/cli.mjs"
+    },
     "exports": {
         "types": "./dist/ZipAFolder.d.mts",
         "import": "./dist/ZipAFolder.mjs",
@@ -37,6 +40,8 @@
         "zip",
         "gzip",
         "tar",
+        "7z",
+        "brotli",
         "folder",
         "async",
         "promise"

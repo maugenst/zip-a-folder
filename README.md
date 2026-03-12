@@ -42,6 +42,7 @@ Feature overview:
 - [Module Import Structure](#module-import-structure)
 - [Native Implementation Notes](#native-implementation-notes)
 - [Unix Permissions Preservation in ZIP](#unix-permissions-preservation-in-zip)
+- [Command Line Interface (CLI)](#command-line-interface-cli)
 - [Running Tests](#running-tests)
 - [Thanks](#thanks)
 
@@ -458,6 +459,89 @@ Automated tests were added to validate:
 - Central Directory "Version Made By" upper byte is 3 (Unix).
 - External File Attributes store the POSIX mode (both files and directories), including directory flag.
 - FileCollector behavior and glob handling are fully covered, pushing coverage to 100% lines/functions.
+
+---
+
+## Command Line Interface (CLI)
+
+zip-a-folder includes a CLI for quick archive creation from the terminal.
+
+### Installation
+
+```bash
+# Global installation
+npm install -g zip-a-folder
+
+# Or use via npx
+npx zip-a-folder ./folder ./archive.zip
+```
+
+### Usage
+
+```bash
+zip-a-folder <source> <target> [options]
+```
+
+### Supported Formats
+
+| Extension   | Description                        |
+| ----------- | ---------------------------------- |
+| `.zip`      | ZIP archive (deflate compression)  |
+| `.tar`      | TAR archive (uncompressed)         |
+| `.tgz`      | TAR archive with gzip compression  |
+| `.tar.gz`   | TAR archive with gzip compression  |
+| `.tar.br`   | TAR archive with brotli compression|
+| `.7z`       | 7z archive with LZMA compression   |
+
+### Options
+
+| Option                    | Description                                      |
+| ------------------------- | ------------------------------------------------ |
+| `-h, --help`              | Show help message                                |
+| `-V, --version`           | Show version number                              |
+| `-v, --verbose`           | Show detailed progress (files being processed)   |
+| `-q, --quiet`             | Suppress all output except errors                |
+| `-c, --compression <level>`| Compression preset: `high`, `medium`, `uncompressed` |
+| `-l, --level <number>`    | Compression level (1-9, format-specific)         |
+| `-e, --exclude <pattern>` | Glob pattern to exclude (can be used multiple times) |
+| `-d, --dest-path <path>`  | Destination path prefix inside archive           |
+
+### Examples
+
+```bash
+# Create a ZIP archive
+zip-a-folder ./my-folder ./archive.zip
+
+# Create a gzipped TAR with verbose output
+zip-a-folder ./src ./backup.tgz -v
+
+# Create a 7z archive with maximum compression
+zip-a-folder ./project ./project.7z -c high
+
+# Create archive excluding node_modules
+zip-a-folder ./app ./app.zip -e "node_modules/**" -e "**/*.log"
+
+# Create brotli-compressed TAR
+zip-a-folder ./data ./data.tar.br -v
+
+# Use glob patterns
+zip-a-folder "src/**/*.ts" ./source.zip
+
+# Quiet mode (only errors)
+zip-a-folder ./folder ./archive.zip -q
+```
+
+### Output
+
+By default, the CLI shows a summary with:
+- Source and target paths
+- Archive format
+- File count
+- Original and compressed sizes
+- Compression ratio
+- Processing time
+
+Use `-v` for detailed file-by-file progress, or `-q` to suppress all output.
 
 ---
 
