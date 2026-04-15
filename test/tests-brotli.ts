@@ -2,8 +2,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import * as zlib from 'zlib';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
+import * as zlib from 'zlib';
 import {COMPRESSION_LEVEL, tar} from '../lib/ZipAFolder';
 
 describe('Brotli compression for TAR archives', () => {

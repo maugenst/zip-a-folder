@@ -1,6 +1,6 @@
 {
     "name": "zip-a-folder",
-    "version": "6.1.0",
+    "version": "6.1.1",
     "description": "Compress a complete folder or a glob list into a zip/tgz/br/7z file",
     "author": "Marius Augenstein",
     "license": "MIT",
@@ -47,16 +47,16 @@
         "promise"
     ],
     "devDependencies": {
-        "@biomejs/biome": "2.3.6",
-        "@types/node": "^24.10.1",
-        "@vitest/coverage-v8": "^3.0.0",
-        "tsdown": "^0.16.5",
+        "@biomejs/biome": "2.4.12",
+        "@types/node": "^25.6.0",
+        "@vitest/coverage-v8": "^4.1.4",
+        "tsdown": "^0.21.8",
         "tslib": "^2.8.1",
-        "typescript": "5.9",
-        "vitest": "^3.0.0"
+        "typescript": "6.0",
+        "vitest": "^4.1.4"
     },
     "dependencies": {
         "lzma": "^2.3.2",
-        "tinyglobby": "^0.2.15"
+        "tinyglobby": "^0.2.16"
     }
 }

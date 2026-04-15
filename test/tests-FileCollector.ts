@@ -1,4 +1,5 @@
 import fs from 'fs';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 import {describe, expect, it} from 'vitest';
@@ -133,6 +134,28 @@ describe('FileCollector', () => {
             const entries = await collectGlobEntries('*.txt', tmp, 0);
             const rels = entries.map((e) => e.relativePath).sort();
             expect(rels).toEqual(['a.txt', 'b.txt']);
+        } finally {
+            fs.rmSync(tmp, {recursive: true, force: true});
+        }
+    });
+
+    it('collectEntriesFromDirectory: skips special files (e.g. Unix sockets)', async () => {
+        const tmp = makeTmpDir('fc-socket-');
+        try {
+            // Create a regular file alongside a Unix socket
+            fs.writeFileSync(path.join(tmp, 'regular.txt'), 'hello');
+
+            const sockPath = path.join(tmp, 'test.sock');
+            const server = net.createServer();
+            await new Promise<void>((resolve) => server.listen(sockPath, resolve));
+            server.close();
+
+            const entries = await collectEntriesFromDirectory(tmp, 1);
+            const names = entries.map((e) => e.relativePath).sort();
+
+            // Socket should be ignored; only the regular file should appear
+            expect(names).toEqual(['regular.txt']);
+            expect(names.includes('test.sock')).toBe(false);
         } finally {
             fs.rmSync(tmp, {recursive: true, force: true});
         }

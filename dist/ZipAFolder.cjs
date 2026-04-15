@@ -1,4 +1,5 @@
-//#region rolldown:runtime
+Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+//#region \0rolldown/runtime.js
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -19,210 +20,16 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	value: mod,
 	enumerable: true
 }) : target, mod));
-
 //#endregion
 let fs = require("fs");
-fs = __toESM(fs);
+fs = __toESM(fs, 1);
 let path = require("path");
-path = __toESM(path);
+path = __toESM(path, 1);
 let zlib = require("zlib");
-zlib = __toESM(zlib);
-let tinyglobby = require("tinyglobby");
+zlib = __toESM(zlib, 1);
 let lzma = require("lzma");
-lzma = __toESM(lzma);
-
-//#region lib/core/FileCollector.ts
-/**
-* Recursively collect entries (files + directories) under a directory,
-* using a worker pool limited by statConcurrency.
-*
-* - The root directory itself is NOT returned as an entry.
-* - Directory entries have relativePath ending with "/".
-* - Entries matching any pattern in `exclude` are omitted (along with their children).
-*/
-async function collectEntriesFromDirectory(rootDir, statConcurrency = 4, exclude) {
-	const root = path.resolve(rootDir);
-	const entries = [];
-	const relPaths = (0, tinyglobby.globSync)("**/*", {
-		cwd: root,
-		onlyFiles: false,
-		dot: true,
-		ignore: exclude
-	});
-	statConcurrency = Math.max(1, statConcurrency | 0);
-	let index = 0;
-	const worker = async () => {
-		while (true) {
-			const i = index++;
-			if (i >= relPaths.length) break;
-			const rel = relPaths[i];
-			const fsPath = path.join(root, rel);
-			const stat = await fs.promises.lstat(fsPath);
-			if (stat.isSymbolicLink()) continue;
-			if (stat.isDirectory()) {
-				/* v8 ignore next */
-				const relDirPath = rel.endsWith("/") ? rel : rel + "/";
-				entries.push({
-					fsPath,
-					relativePath: relDirPath.replace(/\\/g, "/"),
-					isDirectory: true,
-					stat
-				});
-			} else if (stat.isFile()) entries.push({
-				fsPath,
-				relativePath: rel.replace(/\\/g, "/"),
-				isDirectory: false,
-				stat
-			});
-		}
-	};
-	const workers = Array.from({ length: statConcurrency }, () => worker());
-	await Promise.all(workers);
-	return entries;
-}
-/**
-* Collect file entries from one or more glob patterns, relative to a given cwd.
-*
-* - Uses the "tinyglobby" package.
-* - Only files are returned (no explicit directory entries).
-* - Returns [] when there is no match (caller will throw "No glob match found").
-*/
-async function collectGlobEntries(patterns, cwd, statConcurrency = 4, exclude) {
-	const patternList = patterns.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
-	const matchedRelPaths = /* @__PURE__ */ new Set();
-	for (const pattern of patternList) try {
-		const matches = (0, tinyglobby.globSync)(pattern, {
-			cwd,
-			onlyFiles: true,
-			dot: false,
-			ignore: exclude
-		});
-		for (const rel of matches) matchedRelPaths.add(rel.replace(/\\/g, "/"));
-	} catch {}
-	const relPaths = Array.from(matchedRelPaths);
-	if (relPaths.length === 0) return [];
-	const entries = [];
-	let index = 0;
-	statConcurrency = Math.max(1, statConcurrency | 0);
-	const worker = async () => {
-		while (true) {
-			const i = index++;
-			if (i >= relPaths.length) break;
-			const rel = relPaths[i];
-			const abs = path.resolve(cwd, rel);
-			const stat = await fs.promises.stat(abs);
-			/* v8 ignore next 3 */
-			if (!stat.isFile()) continue;
-			entries.push({
-				fsPath: abs,
-				relativePath: rel,
-				isDirectory: false,
-				stat
-			});
-		}
-	};
-	const workers = Array.from({ length: statConcurrency }, () => worker());
-	await Promise.all(workers);
-	return entries;
-}
-
-//#endregion
-//#region lib/core/utils.ts
-/**
-* Precomputed CRC32 table for efficient checksum calculation.
-*/
-const CRC32_TABLE$1 = (() => {
-	const table = new Uint32Array(256);
-	for (let i = 0; i < 256; i++) {
-		let c = i;
-		for (let j = 0; j < 8; j++) if (c & 1) c = 3988292384 ^ c >>> 1;
-		else c = c >>> 1;
-		table[i] = c >>> 0;
-	}
-	return table;
-})();
-/**
-* Compute CRC32 checksum for a buffer.
-*/
-function crc32(buf) {
-	let crc = 4294967295;
-	for (let i = 0; i < buf.length; i++) {
-		const byte = buf[i];
-		crc = CRC32_TABLE$1[(crc ^ byte) & 255] ^ crc >>> 8;
-	}
-	return (crc ^ 4294967295) >>> 0;
-}
-/**
-* Convert a Date to DOS time (HH:MM:SS/2).
-* @param date      Date to convert.
-* @param useLocal  When true use local time, otherwise UTC.
-*/
-function dateToDosTime(date, useLocal) {
-	const secs = Math.floor((useLocal ? date.getSeconds() : date.getUTCSeconds()) / 2);
-	const mins = useLocal ? date.getMinutes() : date.getUTCMinutes();
-	return (useLocal ? date.getHours() : date.getUTCHours()) << 11 | mins << 5 | secs;
-}
-/**
-* Convert a Date to DOS date.
-* @param date      Date to convert.
-* @param useLocal  When true use local time, otherwise UTC.
-*/
-function dateToDosDate(date, useLocal) {
-	const year = useLocal ? date.getFullYear() : date.getUTCFullYear();
-	const month = (useLocal ? date.getMonth() : date.getUTCMonth()) + 1;
-	const day = useLocal ? date.getDate() : date.getUTCDate();
-	return (year < 1980 ? 0 : year - 1980) << 9 | month << 5 | day;
-}
-/**
-* Write an ASCII string into a buffer with a fixed maximum length.
-*/
-function writeString(buf, str, offset, length) {
-	const bytes = Buffer.from(str, "utf8");
-	bytes.copy(buf, offset, 0, Math.min(bytes.length, length));
-}
-/**
-* Write an octal number into a buffer as ASCII text.
-*/
-function writeOctal(buf, value, offset, length) {
-	writeString(buf, value.toString(8).padStart(length - 1, "0"), offset, length - 1);
-	buf[offset + length - 1] = 0;
-}
-/**
-* Write a 64-bit unsigned integer (up to 2^53-1) to a buffer in little-endian order.
-*/
-function writeUInt64LE(buf, value, offset) {
-	const low = value >>> 0;
-	const high = Math.floor(value / 4294967296) >>> 0;
-	buf.writeUInt32LE(low, offset);
-	buf.writeUInt32LE(high, offset + 4);
-}
-/**
-* Helper to write data to a Node writable stream and await completion.
-*/
-function writeToStream(stream, data) {
-	return new Promise((resolve, reject) => {
-		/* v8 ignore next 4 */
-		const onError = (err) => {
-			stream.removeListener("error", onError);
-			reject(err);
-		};
-		stream.once("error", onError);
-		stream.write(data, (err) => {
-			stream.removeListener("error", onError);
-			/* v8 ignore next 3 */
-			if (err) reject(err);
-			else resolve();
-		});
-	});
-}
-/**
-* Determine if a string "looks like" it contains glob characters.
-*/
-function looksLikeGlob(source) {
-	return /[*?[\]{},]/.test(source);
-}
-
-//#endregion
+lzma = __toESM(lzma, 1);
+let tinyglobby = require("tinyglobby");
 //#region lib/7z/Native7z.ts
 /**
 * 7z archive format constants
@@ -259,15 +66,15 @@ const LZMA_CODEC_ID = Buffer.from([
 /**
 * CRC-32 calculation (same as used in ZIP)
 */
-const CRC32_TABLE = [];
+const CRC32_TABLE$1 = [];
 for (let i = 0; i < 256; i++) {
 	let crc = i;
 	for (let j = 0; j < 8; j++) crc = crc & 1 ? 3988292384 ^ crc >>> 1 : crc >>> 1;
-	CRC32_TABLE[i] = crc >>> 0;
+	CRC32_TABLE$1[i] = crc >>> 0;
 }
 function crc32$1(data) {
 	let crc = 4294967295;
-	for (let i = 0; i < data.length; i++) crc = CRC32_TABLE[(crc ^ data[i]) & 255] ^ crc >>> 8;
+	for (let i = 0; i < data.length; i++) crc = CRC32_TABLE$1[(crc ^ data[i]) & 255] ^ crc >>> 8;
 	return (crc ^ 4294967295) >>> 0;
 }
 /**
@@ -502,6 +309,7 @@ var Native7z = class {
 		parts.push(Buffer.from([0]));
 		for (const file of this.files) {
 			const buf = Buffer.alloc(4);
+			/* c8 ignore next */
 			const attr = file.entry.isDirectory ? 16 : 32;
 			buf.writeUInt32LE(attr);
 			parts.push(buf);
@@ -509,7 +317,196 @@ var Native7z = class {
 		return Buffer.concat(parts);
 	}
 };
-
+//#endregion
+//#region lib/core/FileCollector.ts
+/**
+* Recursively collect entries (files + directories) under a directory,
+* using a worker pool limited by statConcurrency.
+*
+* - The root directory itself is NOT returned as an entry.
+* - Directory entries have relativePath ending with "/".
+* - Entries matching any pattern in `exclude` are omitted (along with their children).
+*/
+async function collectEntriesFromDirectory(rootDir, statConcurrency = 4, exclude) {
+	const root = path.resolve(rootDir);
+	const entries = [];
+	const relPaths = (0, tinyglobby.globSync)("**/*", {
+		cwd: root,
+		onlyFiles: false,
+		dot: true,
+		ignore: exclude
+	});
+	statConcurrency = Math.max(1, statConcurrency | 0);
+	let index = 0;
+	const worker = async () => {
+		while (true) {
+			const i = index++;
+			if (i >= relPaths.length) break;
+			const rel = relPaths[i];
+			const fsPath = path.join(root, rel);
+			const stat = await fs.promises.lstat(fsPath);
+			if (stat.isSymbolicLink()) continue;
+			if (stat.isDirectory()) {
+				/* v8 ignore next */
+				const relDirPath = rel.endsWith("/") ? rel : rel + "/";
+				entries.push({
+					fsPath,
+					relativePath: relDirPath.replace(/\\/g, "/"),
+					isDirectory: true,
+					stat
+				});
+			} else if (stat.isFile()) entries.push({
+				fsPath,
+				relativePath: rel.replace(/\\/g, "/"),
+				isDirectory: false,
+				stat
+			});
+		}
+	};
+	const workers = Array.from({ length: statConcurrency }, () => worker());
+	await Promise.all(workers);
+	return entries;
+}
+/**
+* Collect file entries from one or more glob patterns, relative to a given cwd.
+*
+* - Uses the "tinyglobby" package.
+* - Only files are returned (no explicit directory entries).
+* - Returns [] when there is no match (caller will throw "No glob match found").
+*/
+async function collectGlobEntries(patterns, cwd, statConcurrency = 4, exclude) {
+	const patternList = patterns.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+	const matchedRelPaths = /* @__PURE__ */ new Set();
+	for (const pattern of patternList) try {
+		const matches = (0, tinyglobby.globSync)(pattern, {
+			cwd,
+			onlyFiles: true,
+			dot: false,
+			ignore: exclude
+		});
+		for (const rel of matches) matchedRelPaths.add(rel.replace(/\\/g, "/"));
+	} catch {}
+	const relPaths = Array.from(matchedRelPaths);
+	if (relPaths.length === 0) return [];
+	const entries = [];
+	let index = 0;
+	statConcurrency = Math.max(1, statConcurrency | 0);
+	const worker = async () => {
+		while (true) {
+			const i = index++;
+			if (i >= relPaths.length) break;
+			const rel = relPaths[i];
+			const abs = path.resolve(cwd, rel);
+			const stat = await fs.promises.stat(abs);
+			/* v8 ignore next 3 */
+			if (!stat.isFile()) continue;
+			entries.push({
+				fsPath: abs,
+				relativePath: rel,
+				isDirectory: false,
+				stat
+			});
+		}
+	};
+	const workers = Array.from({ length: statConcurrency }, () => worker());
+	await Promise.all(workers);
+	return entries;
+}
+//#endregion
+//#region lib/core/utils.ts
+/**
+* Precomputed CRC32 table for efficient checksum calculation.
+*/
+const CRC32_TABLE = (() => {
+	const table = new Uint32Array(256);
+	for (let i = 0; i < 256; i++) {
+		let c = i;
+		for (let j = 0; j < 8; j++) if (c & 1) c = 3988292384 ^ c >>> 1;
+		else c = c >>> 1;
+		table[i] = c >>> 0;
+	}
+	return table;
+})();
+/**
+* Compute CRC32 checksum for a buffer.
+*/
+function crc32(buf) {
+	let crc = 4294967295;
+	for (let i = 0; i < buf.length; i++) {
+		const byte = buf[i];
+		crc = CRC32_TABLE[(crc ^ byte) & 255] ^ crc >>> 8;
+	}
+	return (crc ^ 4294967295) >>> 0;
+}
+/**
+* Convert a Date to DOS time (HH:MM:SS/2).
+* @param date      Date to convert.
+* @param useLocal  When true use local time, otherwise UTC.
+*/
+function dateToDosTime(date, useLocal) {
+	const secs = Math.floor((useLocal ? date.getSeconds() : date.getUTCSeconds()) / 2);
+	const mins = useLocal ? date.getMinutes() : date.getUTCMinutes();
+	return (useLocal ? date.getHours() : date.getUTCHours()) << 11 | mins << 5 | secs;
+}
+/**
+* Convert a Date to DOS date.
+* @param date      Date to convert.
+* @param useLocal  When true use local time, otherwise UTC.
+*/
+function dateToDosDate(date, useLocal) {
+	const year = useLocal ? date.getFullYear() : date.getUTCFullYear();
+	const month = (useLocal ? date.getMonth() : date.getUTCMonth()) + 1;
+	const day = useLocal ? date.getDate() : date.getUTCDate();
+	return (year < 1980 ? 0 : year - 1980) << 9 | month << 5 | day;
+}
+/**
+* Write an ASCII string into a buffer with a fixed maximum length.
+*/
+function writeString(buf, str, offset, length) {
+	const bytes = Buffer.from(str, "utf8");
+	bytes.copy(buf, offset, 0, Math.min(bytes.length, length));
+}
+/**
+* Write an octal number into a buffer as ASCII text.
+*/
+function writeOctal(buf, value, offset, length) {
+	writeString(buf, value.toString(8).padStart(length - 1, "0"), offset, length - 1);
+	buf[offset + length - 1] = 0;
+}
+/**
+* Write a 64-bit unsigned integer (up to 2^53-1) to a buffer in little-endian order.
+*/
+function writeUInt64LE(buf, value, offset) {
+	const low = value >>> 0;
+	const high = Math.floor(value / 4294967296) >>> 0;
+	buf.writeUInt32LE(low, offset);
+	buf.writeUInt32LE(high, offset + 4);
+}
+/**
+* Helper to write data to a Node writable stream and await completion.
+*/
+function writeToStream(stream, data) {
+	return new Promise((resolve, reject) => {
+		/* v8 ignore next 4 */
+		const onError = (err) => {
+			stream.removeListener("error", onError);
+			reject(err);
+		};
+		stream.once("error", onError);
+		stream.write(data, (err) => {
+			stream.removeListener("error", onError);
+			/* v8 ignore next 3 */
+			if (err) reject(err);
+			else resolve();
+		});
+	});
+}
+/**
+* Determine if a string "looks like" it contains glob characters.
+*/
+function looksLikeGlob(source) {
+	return /[*?[\]{},]/.test(source);
+}
 //#endregion
 //#region lib/tar/NativeTar.ts
 /**
@@ -572,7 +569,6 @@ var NativeTar = class {
 		await writeToStream(this.stream, block);
 	}
 };
-
 //#endregion
 //#region lib/zip/NativeZip.ts
 /**
@@ -879,7 +875,6 @@ var NativeZip = class {
 		});
 	}
 };
-
 //#endregion
 //#region lib/ZipAFolder.ts
 const COMPRESSION_LEVEL = {
@@ -918,6 +913,7 @@ var ZipAFolder = class {
 			case "high":
 				if (zlibOptions.level === void 0) zlibOptions.level = zlib.constants.Z_BEST_COMPRESSION;
 				break;
+			/* v8 ignore next 3 */
 			default: break;
 		}
 		const zipper = new NativeZip({
@@ -1010,6 +1006,7 @@ var ZipAFolder = class {
 			case "high":
 				if (gzipOptions.level === void 0) gzipOptions.level = zlib.constants.Z_BEST_COMPRESSION;
 				break;
+			/* v8 ignore next 2 */
 			default: break;
 		}
 		const brotliOptions = { ...options.brotliOptions || {} };
@@ -1022,6 +1019,7 @@ var ZipAFolder = class {
 				case "high":
 					brotliOptions.params[zlib.constants.BROTLI_PARAM_QUALITY] = zlib.constants.BROTLI_MAX_QUALITY;
 					break;
+				/* v8 ignore next 2 */
 				default: break;
 			}
 		}
@@ -1134,7 +1132,6 @@ function tar(source, targetFilePath, options) {
 function sevenZip(source, targetFilePath, options) {
 	return ZipAFolder.sevenZip(source, targetFilePath, options ?? {});
 }
-
 //#endregion
 exports.COMPRESSION_LEVEL = COMPRESSION_LEVEL;
 exports.ZipAFolder = ZipAFolder;

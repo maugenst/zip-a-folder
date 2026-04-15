@@ -2,8 +2,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
-import {sevenZip, ZipAFolder} from '../lib/ZipAFolder';
 import {Native7z} from '../lib/7z/Native7z';
+import {sevenZip, ZipAFolder} from '../lib/ZipAFolder';
 
 const testDataDir = path.join(__dirname, 'data');
 const testOutputDir = path.join(__dirname, 'folder');

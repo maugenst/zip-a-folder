@@ -1,32 +1,26 @@
 {
-  "compilerOptions": {
-    "outDir": "./dist",
-    "typeRoots": ["./node_modules/@types", "./@types"],
-    "moduleResolution": "node",
-    "incremental": true,
-    "sourceMap": true,
-    "declaration": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "removeComments": true,
-    "pretty": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "strictPropertyInitialization": false,
-    "newLine": "LF",
-    "noImplicitAny": false,
-    "strict": true,
-    "importHelpers": true,
-    "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "esModuleInterop": true
-  },
-  "exclude": [
-    "node_modules",
-    "test",
-    "dist",
-    "@typings"
-  ]
+    "compilerOptions": {
+        "outDir": "./dist",
+        "typeRoots": ["./node_modules/@types", "./@types"],
+        "incremental": true,
+        "sourceMap": true,
+        "declaration": true,
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true,
+        "removeComments": true,
+        "pretty": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "strictPropertyInitialization": false,
+        "newLine": "LF",
+        "noImplicitAny": false,
+        "strict": true,
+        "importHelpers": true,
+        "allowSyntheticDefaultImports": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true,
+        "resolveJsonModule": true,
+        "esModuleInterop": true
+    },
+    "exclude": ["node_modules", "test", "dist", "@typings"]
 }

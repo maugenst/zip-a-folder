@@ -1,10 +1,9 @@
 // lib/7z/Native7z.ts
 import * as fs from 'fs';
-import type {FileEntry} from '../core/types';
-
 // Import LZMA using require for CommonJS compatibility
 // @ts-ignore - lzma doesn't have types
 import LZMA from 'lzma';
+import type {FileEntry} from '../core/types';
 
 /**
  * 7z archive format constants
@@ -439,6 +438,8 @@ export class Native7z {
             const buf = Buffer.alloc(4);
             // Windows FILE_ATTRIBUTE_ARCHIVE = 0x20
             // For directories: FILE_ATTRIBUTE_DIRECTORY = 0x10
+            // Note: isDirectory is always false here because addFile() skips directories.
+            /* c8 ignore next */
             const attr = file.entry.isDirectory ? 0x10 : 0x20;
             buf.writeUInt32LE(attr);
             parts.push(buf);

@@ -2,6 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
+import {Native7z} from './7z/Native7z';
 import {collectEntriesFromDirectory, collectGlobEntries} from './core/FileCollector';
 import {
     COMPRESSION_LEVELS,
@@ -12,7 +13,6 @@ import {
     ZipArchiveOptions
 } from './core/types';
 import {looksLikeGlob} from './core/utils';
-import {Native7z} from './7z/Native7z';
 import {NativeTar} from './tar/NativeTar';
 import {NativeZip} from './zip/NativeZip';
 

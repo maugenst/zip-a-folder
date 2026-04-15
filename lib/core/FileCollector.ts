@@ -57,13 +57,16 @@ export async function collectEntriesFromDirectory(
                     isDirectory: true,
                     stat
                 });
-            } else if (stat.isFile()) {
-                entries.push({
-                    fsPath,
-                    relativePath: rel.replace(/\\/g, '/'),
-                    isDirectory: false,
-                    stat
-                });
+            } else {
+                /* v8 ignore else */
+                if (stat.isFile()) {
+                    entries.push({
+                        fsPath,
+                        relativePath: rel.replace(/\\/g, '/'),
+                        isDirectory: false,
+                        stat
+                    });
+                }
             }
             // other special files ignored
         }

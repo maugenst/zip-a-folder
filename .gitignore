@@ -22,7 +22,7 @@ test/*.zip
 test/*.tgz
 test/*.tar
 test/*.br
-test/*.7z
+test/*/*.7z
 test/largeFolder
 
 # Coverage
