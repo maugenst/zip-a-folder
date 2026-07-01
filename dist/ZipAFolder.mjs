@@ -391,7 +391,7 @@ async function collectGlobEntries(patterns, cwd, statConcurrency = 4, exclude) {
 * Precomputed CRC32 table for efficient checksum calculation.
 */
 const CRC32_TABLE = (() => {
-	const table = new Uint32Array(256);
+	const table = /* @__PURE__ */ new Uint32Array(256);
 	for (let i = 0; i < 256; i++) {
 		let c = i;
 		for (let j = 0; j < 8; j++) if (c & 1) c = 3988292384 ^ c >>> 1;
@@ -742,7 +742,7 @@ var NativeZip = class {
 					let centralExtra = Buffer.alloc(0);
 					if (centralNeedsZip64) {
 						const extraSize = 24;
-						const extra = Buffer.alloc(4 + extraSize);
+						const extra = Buffer.alloc(28);
 						let q = 0;
 						extra.writeUInt16LE(1, q);
 						q += 2;
