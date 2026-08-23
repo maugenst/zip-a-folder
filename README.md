@@ -7,15 +7,15 @@
 
 # zip-a-folder
 
-Compress a folder into ZIP/TAR/TGZ/BR/7z. This library is trying to with as less dependencies as possible to 
-other libraries. For ZIP, TAR and Brotli archives it uses the **native Node.js compression (zlib)**. 
-7z uses the pure JavaScript `lzma-js` library for LZMA compression.
+Compress a folder into ZIP/TAR/TGZ/BR/7z. This library tries to use as few dependencies as possible.
+For ZIP, TAR and Brotli archives it uses the **native Node.js compression (zlib)**.
+7z uses **`@napi-rs/lzma`** — a native binary addon with pre-built binaries for 17 platforms (Linux, macOS, Windows, ARM, musl, FreeBSD) and a WASM fallback for everything else. No compiler or build tools required.
 
 Feature overview:
 
 - ZIP archives (with optional ZIP64)
 - TAR archives (optionally gzipped or brotli-compressed)
-- **7z archives** with LZMA compression (via lzma-js)
+- **7z archives** with native LZMA compression (via `@napi-rs/lzma`)
 - Fine-grained zlib/gzip/brotli/LZMA control
 - Globs (single or comma-separated)
 - Parallel directory scanning (`statConcurrency`)
@@ -80,16 +80,28 @@ A major rewrite using:
   The public API (`COMPRESSION_LEVEL.high`, etc.) is unchanged — only the underlying type changed from a TypeScript `enum` to a `const satisfies` object. See [PR #70](https://github.com/maugenst/zip-a-folder/pull/70) by [@schplitt](https://github.com/schplitt).
 - Added `exclude` option — an array of glob patterns for files/directories to omit from the archive. See [issue #65](https://github.com/maugenst/zip-a-folder/issues/65) by [@Pomax](https://github.com/Pomax).
 
-### Version 6 (current)
+### Version 6
 
 - **Native Brotli compression support** for TAR archives using Node.js built-in `zlib.brotliCompressSync()`. Create `.tar.br` files with the new `compressionType: 'brotli'` option. Brotli typically provides better compression ratios than gzip, especially for text-based content.
 - **New 7z archive format support** via the `sevenZip()` function. Uses pure JavaScript LZMA compression (via `lzma-js` library) — no external binaries required. Provides excellent compression ratios with the industry-standard 7z format.
 - New `brotliOptions` for fine-grained control over brotli compression parameters.
 - New `compressionLevel` option (1-9) for 7z archives to control LZMA compression level.
 
+### Version 7 (current)
+
+- **Native LZMA via `@napi-rs/lzma`** replaces the pure-JavaScript `lzma-js` for 7z compression.
+  Pre-built binaries are downloaded automatically at `npm install` for 17 platforms (Linux x64/arm64 GNU+musl, macOS x64/arm64, Windows x64/arm64/x32, FreeBSD, Android, RISC-V) with a WASM fallback for everything else. No compiler or `node-gyp` required.
+  This is a **significant performance improvement** — compression is 5–10× faster than the old pure-JS implementation.
+- **Node.js ≥ 22.20 required** (imposed by `@napi-rs/lzma`). Specifically: `^22.20 || ^24.12 || >=25`.
+  Node 20 and Node 23 are no longer supported.
+- The **7z options API is unchanged** — no migration needed.
+- Fixes [issue #73](https://github.com/maugenst/zip-a-folder/issues/73): the process no longer hangs after `sevenZip()` completes (caused by open handles in the old pure-JS worker thread).
+
 ---
 
 ## Installation
+
+> **Requires Node.js `^22.20 || ^24.12 || >=25`** (imposed by the native `@napi-rs/lzma` dependency).
 
 ```bash
 npm install zip-a-folder
@@ -285,7 +297,10 @@ await sevenZip('/project', '/archive.7z', {
 });
 ```
 
-> **Note:** 7z archives use LZMA compression via the `lzma-js` library. This provides excellent compression ratios, especially for text-based content. The 7z format stores files as a solid archive, meaning all file data is concatenated and compressed together for better compression efficiency.
+> **Note:** 7z archives use native LZMA compression via `@napi-rs/lzma`. Pre-built binaries are automatically
+> selected at install time for your platform — no compiler required. A WASM fallback is used on unsupported
+> platforms. The 7z format stores files as a solid archive, meaning all file data is concatenated and compressed
+> together for better compression efficiency.
 
 ---
 
@@ -432,6 +447,7 @@ import type { ZipArchiveOptions, TarArchiveOptions } from 'zip-a-folder';
 ## Native Implementation Notes
 
 - ZIP and TAR are written using **pure Node.js** (`zlib`, raw buffering)
+- 7z uses **`@napi-rs/lzma`** — native pre-built binaries for 17 platforms, WASM fallback otherwise
 - ZIP64 support included
 - File system scanning performed with a **parallel stat queue**
 - Globs handled via the **tinyglobby** package
@@ -554,6 +570,12 @@ npm test
 ```
 
 Coverage is reported automatically via `@vitest/coverage-v8`.
+
+A separate **Bun** test suite covers the full test matrix under Bun's runtime and also acts as a regression guard for [issue #73](https://github.com/maugenst/zip-a-folder/issues/73) (process hang after `sevenZip()`):
+
+```bash
+bun test ./test/tests-7z.bun.test.ts
+```
 
 ---
 

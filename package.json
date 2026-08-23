@@ -1,6 +1,6 @@
 {
     "name": "zip-a-folder",
-    "version": "6.2.0",
+    "version": "7.0.0",
     "description": "Compress a complete folder or a glob list into a zip/tgz/br/7z file",
     "author": "Marius Augenstein",
     "license": "MIT",
@@ -32,6 +32,9 @@
         "lint": "npx @biomejs/biome lint ./lib ./test --write",
         "format": "npx @biomejs/biome format --write ./lib ./test",
         "typecheck": "tsc --noEmit"
+    },
+    "engines": {
+        "node": "^22.20 || ^24.12 || >=25"
     },
     "repository": {
         "type": "git",
