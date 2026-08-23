@@ -17,8 +17,22 @@ jobs:
           command: |
             bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r coverage/lcov.info
 
+  testBun:
+    docker:
+      - image: oven/bun:latest
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: bun install
+      - run:
+          name: Run Bun tests (includes hang-on-exit regression check)
+          # 30 s timeout catches a hanging process; bun test itself has no --timeout for suite exit
+          command: timeout 30 bun test ./test/tests-7z.bun.test.ts
+
 workflows:
   version: 2
   build_and_test:
     jobs:
       - buildAndTest
+      - testBun

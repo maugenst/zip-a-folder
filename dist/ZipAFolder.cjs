@@ -16,7 +16,7 @@ var __copyProps = (to, from, except, desc) => {
 	}
 	return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", {
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule || !__hasOwnProp.call(mod, "default") ? __defProp(target, "default", {
 	value: mod,
 	enumerable: true
 }) : target, mod));
@@ -27,8 +27,7 @@ let path = require("path");
 path = __toESM(path, 1);
 let zlib = require("zlib");
 zlib = __toESM(zlib, 1);
-let lzma = require("lzma");
-lzma = __toESM(lzma, 1);
+let _napi_rs_lzma = require("@napi-rs/lzma");
 let tinyglobby = require("tinyglobby");
 //#region lib/7z/Native7z.ts
 /**
@@ -97,7 +96,7 @@ function dateToFiletime(date) {
 	return (BigInt(date.getTime()) + EPOCH_DIFF) * BigInt(1e4);
 }
 /**
-* Native 7z archive writer using pure JavaScript LZMA compression.
+* Native 7z archive writer using @napi-rs/lzma for fast native LZMA compression.
 */
 var Native7z = class {
 	/**
@@ -123,19 +122,11 @@ var Native7z = class {
 	/**
 	* Compress data using LZMA.
 	*/
-	compressLzma(data) {
-		return new Promise((resolve, reject) => {
-			lzma.default.compress(data, this.compressionLevel, (result, error) => {
-				/* c8 ignore start - LZMA error handling is hard to trigger in tests */
-				if (error || result instanceof Error) {
-					reject(error || result);
-					return;
-				}
-				/* c8 ignore stop */
-				const unsigned = result.map((b) => b < 0 ? b + 256 : b);
-				resolve(Buffer.from(unsigned));
-			});
-		});
+	async compressLzma(data) {
+		const compressor = new _napi_rs_lzma.XzCompressor({ preset: this.compressionLevel });
+		const head = compressor.update(data);
+		const tail = await compressor.finish();
+		return Buffer.concat([head, tail]);
 	}
 	/**
 	* Finalize and write the archive to a stream.
@@ -910,11 +901,7 @@ var ZipAFolder = class {
 			case "medium":
 				if (zlibOptions.level === void 0) zlibOptions.level = zlib.constants.Z_DEFAULT_COMPRESSION;
 				break;
-			case "high":
-				if (zlibOptions.level === void 0) zlibOptions.level = zlib.constants.Z_BEST_COMPRESSION;
-				break;
-			/* v8 ignore next 3 */
-			default: break;
+			case "high": if (zlibOptions.level === void 0) zlibOptions.level = zlib.constants.Z_BEST_COMPRESSION;
 		}
 		const zipper = new NativeZip({
 			comment: options.comment,
@@ -1003,11 +990,7 @@ var ZipAFolder = class {
 			case "medium":
 				if (gzipOptions.level === void 0) gzipOptions.level = zlib.constants.Z_DEFAULT_COMPRESSION;
 				break;
-			case "high":
-				if (gzipOptions.level === void 0) gzipOptions.level = zlib.constants.Z_BEST_COMPRESSION;
-				break;
-			/* v8 ignore next 2 */
-			default: break;
+			case "high": if (gzipOptions.level === void 0) gzipOptions.level = zlib.constants.Z_BEST_COMPRESSION;
 		}
 		const brotliOptions = { ...options.brotliOptions || {} };
 		if (compressionType === "brotli" && options.compression !== void 0) {
@@ -1016,11 +999,7 @@ var ZipAFolder = class {
 				case "medium":
 					brotliOptions.params[zlib.constants.BROTLI_PARAM_QUALITY] = 6;
 					break;
-				case "high":
-					brotliOptions.params[zlib.constants.BROTLI_PARAM_QUALITY] = zlib.constants.BROTLI_MAX_QUALITY;
-					break;
-				/* v8 ignore next 2 */
-				default: break;
+				case "high": brotliOptions.params[zlib.constants.BROTLI_PARAM_QUALITY] = zlib.constants.BROTLI_MAX_QUALITY;
 			}
 		}
 		if (!customWS && hasTargetPath) {
@@ -1099,9 +1078,7 @@ var ZipAFolder = class {
 			case "medium":
 				compressionLevel = 5;
 				break;
-			case "high":
-				compressionLevel = 9;
-				break;
+			case "high": compressionLevel = 9;
 		}
 		if (!customWS && hasTargetPath) {
 			const parentDir = path.dirname(path.resolve(targetFilePath));

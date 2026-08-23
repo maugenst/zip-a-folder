@@ -1,8 +1,6 @@
 // lib/7z/Native7z.ts
 import * as fs from 'fs';
-// Import LZMA using require for CommonJS compatibility
-// @ts-ignore - lzma doesn't have types
-import LZMA from 'lzma';
+import {XzCompressor} from '@napi-rs/lzma';
 import type {FileEntry} from '../core/types';
 
 /**
@@ -85,7 +83,7 @@ interface FileData {
 }
 
 /**
- * Native 7z archive writer using pure JavaScript LZMA compression.
+ * Native 7z archive writer using @napi-rs/lzma for fast native LZMA compression.
  */
 export class Native7z {
     private files: FileData[] = [];
@@ -121,20 +119,11 @@ export class Native7z {
     /**
      * Compress data using LZMA.
      */
-    private compressLzma(data: Buffer): Promise<Buffer> {
-        return new Promise((resolve, reject) => {
-            LZMA.compress(data, this.compressionLevel, (result: number[] | Error, error?: Error) => {
-                /* c8 ignore start - LZMA error handling is hard to trigger in tests */
-                if (error || result instanceof Error) {
-                    reject(error || result);
-                    return;
-                }
-                /* c8 ignore stop */
-                // Result is signed bytes, convert to unsigned Buffer
-                const unsigned = (result as number[]).map((b) => (b < 0 ? b + 256 : b));
-                resolve(Buffer.from(unsigned));
-            });
-        });
+    private async compressLzma(data: Buffer): Promise<Buffer> {
+        const compressor = new XzCompressor({preset: this.compressionLevel});
+        const head = compressor.update(data);
+        const tail = await compressor.finish();
+        return Buffer.concat([head, tail]);
     }
 
     /**
