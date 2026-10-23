@@ -97,6 +97,12 @@ A major rewrite using:
 - The **7z options API is unchanged** — no migration needed.
 - Fixes [issue #73](https://github.com/maugenst/zip-a-folder/issues/73): the process no longer hangs after `sevenZip()` completes (caused by open handles in the old pure-JS worker thread).
 
+### Version 7.0.1 (security patch)
+
+- **Security fix (glob mode — all formats):** Glob patterns that escape the working directory (patterns containing `..` segments, or absolute paths) now throw a descriptive error instead of silently packaging files from outside cwd. Reported by Abdullah Hassan ([@DragonPwn](https://github.com/DragonPwn)) via coordinated disclosure.
+- **ZIP entry-name hardening:** Archive entry names containing `..` path segments (e.g. produced by a `destPath: '../../poc'` option) now throw an error at the point the entry is added, preventing Zip-Slip on extraction by tools that don't sanitize entry names.
+- **ZIP length validation:** Passing a comment or entry name whose UTF-8 byte length exceeds 65535 (the ZIP format's 16-bit limit) now throws a descriptive error instead of an uncaught `RangeError` that crashed the calling process.
+
 ---
 
 ## Installation
@@ -333,11 +339,13 @@ The first parameter may be:
 - A single glob
 - A comma-separated list of globs
 
-Example:
+Glob patterns are resolved relative to `process.cwd()`. Patterns that escape the working directory — those containing `..` segments or absolute paths — throw an error:
 
 ```js
-await zip('**/*.json', '/archive.zip');
-await zip('**/*.json, **/*.txt', '/archive2.zip');
+await zip('**/*.json', '/archive.zip');           // OK: in-cwd glob
+await zip('**/*.json, **/*.txt', '/archive2.zip'); // OK: comma-separated
+await zip('../secrets/*', '/archive.zip');          // throws: escapes cwd
+await zip('/etc/pass*', '/archive.zip');            // throws: absolute path
 ```
 
 If no files match, zip-a-folder throws:

@@ -358,36 +358,57 @@ async function collectEntriesFromDirectory(rootDir, statConcurrency = 4, exclude
 	await Promise.all(workers);
 	return entries;
 }
+/** Regex matching a ".." path segment (POSIX-normalized). */
+const RE_DOTDOT = /(^|\/)\.\.(\/|$)/;
+/**
+* Assert that an absolute resolved path is strictly inside the given root.
+* Throws if the path equals the root itself or escapes it.
+*
+* Exported with an underscore prefix for unit testing only — not part of the
+* public API and may change without notice.
+*/
+function _assertInsideCwd(abs, root, rel) {
+	const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+	if (abs !== root && !abs.startsWith(prefix)) throw new Error(`Matched file escapes the working directory: "${rel}"`);
+}
 /**
 * Collect file entries from one or more glob patterns, relative to a given cwd.
 *
 * - Uses the "tinyglobby" package.
 * - Only files are returned (no explicit directory entries).
 * - Returns [] when there is no match (caller will throw "No glob match found").
+* - Throws if any pattern is absolute or contains ".." segments, or if a
+*   matched file resolves outside cwd.
 */
 async function collectGlobEntries(patterns, cwd, statConcurrency = 4, exclude) {
 	const patternList = patterns.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
 	const matchedRelPaths = /* @__PURE__ */ new Set();
-	for (const pattern of patternList) try {
-		const matches = (0, tinyglobby.globSync)(pattern, {
-			cwd,
-			onlyFiles: true,
-			dot: false,
-			ignore: exclude
-		});
-		for (const rel of matches) matchedRelPaths.add(rel.replace(/\\/g, "/"));
-	} catch {}
+	for (const pattern of patternList) {
+		if (path.isAbsolute(pattern)) throw new Error(`Glob pattern escapes the working directory: "${pattern}" (absolute paths are not allowed)`);
+		if (RE_DOTDOT.test(pattern.replace(/\\/g, "/"))) throw new Error(`Glob pattern escapes the working directory: "${pattern}" (.. segments are not allowed)`);
+		try {
+			const matches = (0, tinyglobby.globSync)(pattern, {
+				cwd,
+				onlyFiles: true,
+				dot: false,
+				ignore: exclude
+			});
+			for (const rel of matches) matchedRelPaths.add(rel.replace(/\\/g, "/"));
+		} catch {}
+	}
 	const relPaths = Array.from(matchedRelPaths);
 	if (relPaths.length === 0) return [];
 	const entries = [];
 	let index = 0;
 	statConcurrency = Math.max(1, statConcurrency | 0);
+	const root = path.resolve(cwd);
 	const worker = async () => {
 		while (true) {
 			const i = index++;
 			if (i >= relPaths.length) break;
 			const rel = relPaths[i];
 			const abs = path.resolve(cwd, rel);
+			_assertInsideCwd(abs, root, rel);
 			const stat = await fs.promises.stat(abs);
 			/* v8 ignore next 3 */
 			if (!stat.isFile()) continue;
@@ -579,6 +600,16 @@ var ZipEntry = class {
 		this.compressedData = params.compressedData;
 	}
 };
+/** Regex matching a ".." path segment in a POSIX-normalized archive entry name. */
+const RE_DOTDOT_ENTRY = /(^|\/)\.\.(\/|$)/;
+/**
+* Assert that an archive entry name does not contain path-traversal segments.
+* Allows a single leading "/" (produced intentionally by the namePrependSlash option).
+* Throws for any ".." segment.
+*/
+function assertSafeName(name) {
+	if (RE_DOTDOT_ENTRY.test(name)) throw new Error(`Unsafe archive entry name (path traversal): "${name}"`);
+}
 /**
 * Native ZIP writer using only Node's built-in modules.
 *
@@ -606,6 +637,7 @@ var NativeZip = class {
 	addDirectoryEntry(archivePath, date, mode) {
 		let name = archivePath.replace(/\\/g, "/");
 		if (!name.endsWith("/")) name += "/";
+		assertSafeName(name);
 		this.entries.push(new ZipEntry({
 			name,
 			isDirectory: true,
@@ -627,6 +659,7 @@ var NativeZip = class {
 	*/
 	async addFileFromFs(filePath, archivePath, date, mode) {
 		const name = archivePath.replace(/\\/g, "/");
+		assertSafeName(name);
 		const data = await fs.promises.readFile(filePath);
 		const sum = crc32(data);
 		let compressed;
@@ -661,9 +694,11 @@ var NativeZip = class {
 				let offset = 0;
 				const centralDirParts = [];
 				const commentBuffer = this.comment ? Buffer.from(this.comment, "utf8") : Buffer.alloc(0);
+				if (commentBuffer.length > 65535) throw new Error(`ZIP comment too long: ${commentBuffer.length} bytes (max 65535)`);
 				let useZip64 = this.forceZip64;
 				for (const entry of this.entries) {
 					const nameBuffer = Buffer.from(entry.name, "utf8");
+					if (nameBuffer.length > 65535) throw new Error(`ZIP entry name too long: "${entry.name.slice(0, 40)}..." is ${nameBuffer.length} bytes (max 65535)`);
 					const dosTime = dateToDosTime(entry.date, this.useLocalTime);
 					const dosDate = dateToDosDate(entry.date, this.useLocalTime);
 					const needsZip64Sizes = entry.compressedSize >= 4294967295 || entry.uncompressedSize >= 4294967295 || this.forceZip64;

@@ -55,6 +55,20 @@ export interface NativeZipOptions {
     zlib?: zlib.ZlibOptions;
 }
 
+/** Regex matching a ".." path segment in a POSIX-normalized archive entry name. */
+const RE_DOTDOT_ENTRY = /(^|\/)\.\.(\/|$)/;
+
+/**
+ * Assert that an archive entry name does not contain path-traversal segments.
+ * Allows a single leading "/" (produced intentionally by the namePrependSlash option).
+ * Throws for any ".." segment.
+ */
+function assertSafeName(name: string): void {
+    if (RE_DOTDOT_ENTRY.test(name)) {
+        throw new Error(`Unsafe archive entry name (path traversal): "${name}"`);
+    }
+}
+
 /**
  * Native ZIP writer using only Node's built-in modules.
  *
@@ -91,6 +105,7 @@ export class NativeZip {
         if (!name.endsWith('/')) {
             name += '/';
         }
+        assertSafeName(name);
         this.entries.push(
             new ZipEntry({
                 name,
@@ -115,6 +130,7 @@ export class NativeZip {
      */
     public async addFileFromFs(filePath: string, archivePath: string, date: Date, mode: number): Promise<void> {
         const name = archivePath.replace(/\\/g, '/');
+        assertSafeName(name);
         const data = await fs.promises.readFile(filePath);
         const sum = crc32(data);
 
@@ -156,12 +172,18 @@ export class NativeZip {
                 let offset = 0;
                 const centralDirParts: Buffer[] = [];
                 const commentBuffer = this.comment ? Buffer.from(this.comment, 'utf8') : Buffer.alloc(0);
+                if (commentBuffer.length > 0xffff) {
+                    throw new Error(`ZIP comment too long: ${commentBuffer.length} bytes (max 65535)`);
+                }
 
                 let useZip64 = this.forceZip64;
 
                 // Write local file headers + data, build central directory entries in memory.
                 for (const entry of this.entries) {
                     const nameBuffer = Buffer.from(entry.name, 'utf8');
+                    if (nameBuffer.length > 0xffff) {
+                        throw new Error(`ZIP entry name too long: "${entry.name.slice(0, 40)}..." is ${nameBuffer.length} bytes (max 65535)`);
+                    }
                     const dosTime = dateToDosTime(entry.date, this.useLocalTime);
                     const dosDate = dateToDosDate(entry.date, this.useLocalTime);
 

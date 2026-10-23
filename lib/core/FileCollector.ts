@@ -77,12 +77,31 @@ export async function collectEntriesFromDirectory(
     return entries;
 }
 
+/** Regex matching a ".." path segment (POSIX-normalized). */
+const RE_DOTDOT = /(^|\/)\.\.(\/|$)/;
+
+/**
+ * Assert that an absolute resolved path is strictly inside the given root.
+ * Throws if the path equals the root itself or escapes it.
+ *
+ * Exported with an underscore prefix for unit testing only — not part of the
+ * public API and may change without notice.
+ */
+export function _assertInsideCwd(abs: string, root: string, rel: string): void {
+    const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+    if (abs !== root && !abs.startsWith(prefix)) {
+        throw new Error(`Matched file escapes the working directory: "${rel}"`);
+    }
+}
+
 /**
  * Collect file entries from one or more glob patterns, relative to a given cwd.
  *
  * - Uses the "tinyglobby" package.
  * - Only files are returned (no explicit directory entries).
  * - Returns [] when there is no match (caller will throw "No glob match found").
+ * - Throws if any pattern is absolute or contains ".." segments, or if a
+ *   matched file resolves outside cwd.
  */
 export async function collectGlobEntries(
     patterns: string,
@@ -98,6 +117,15 @@ export async function collectGlobEntries(
     const matchedRelPaths = new Set<string>();
 
     for (const pattern of patternList) {
+        // Guard: reject patterns that escape cwd. Must run BEFORE the try/catch
+        // below, which swallows all errors (so a throw inside would be lost).
+        if (path.isAbsolute(pattern)) {
+            throw new Error(`Glob pattern escapes the working directory: "${pattern}" (absolute paths are not allowed)`);
+        }
+        if (RE_DOTDOT.test(pattern.replace(/\\/g, '/'))) {
+            throw new Error(`Glob pattern escapes the working directory: "${pattern}" (.. segments are not allowed)`);
+        }
+
         try {
             const matches = globSync(pattern, {
                 cwd,
@@ -124,6 +152,7 @@ export async function collectGlobEntries(
     const entries: FileEntry[] = [];
     let index = 0;
     statConcurrency = Math.max(1, statConcurrency | 0);
+    const root = path.resolve(cwd);
 
     // Parallelize fs.stat over matches
     const worker = async () => {
@@ -135,6 +164,10 @@ export async function collectGlobEntries(
 
             const rel = relPaths[i];
             const abs = path.resolve(cwd, rel);
+
+            // Defensive containment check: reject any match that resolves outside cwd.
+            _assertInsideCwd(abs, root, rel);
+
             const stat = await fs.promises.stat(abs);
             /* v8 ignore next 3 */
             if (!stat.isFile()) {

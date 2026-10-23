@@ -117,3 +117,74 @@ describe('ZIP mode and version fields', () => {
         expect(entries[0].name).toBe('mydir/');
     });
 });
+
+describe('ZIP entry-name sanitization (Obs#1)', () => {
+    it('addDirectoryEntry: rejects a name with ".." segment (sync throw)', () => {
+        const zip = new NativeZip();
+        expect(() => zip.addDirectoryEntry('../../poc/', new Date(), 0o755)).toThrow(
+            /traversal|Unsafe archive entry/
+        );
+    });
+
+    it('addFileFromFs: rejects a name with ".." segment (async reject)', async () => {
+        const zip = new NativeZip();
+        const selfPath = new URL(import.meta.url).pathname;
+        await expect(zip.addFileFromFs(selfPath, '../../poc/file.txt', new Date(), 0o644)).rejects.toThrow(
+            /traversal|Unsafe archive entry/
+        );
+    });
+
+    it('addFileFromFs: rejects a name with ".." segment in the middle', async () => {
+        const zip = new NativeZip();
+        const selfPath = new URL(import.meta.url).pathname;
+        await expect(zip.addFileFromFs(selfPath, 'data/../../../etc/passwd', new Date(), 0o644)).rejects.toThrow(
+            /traversal|Unsafe archive entry/
+        );
+    });
+
+    it('addFileFromFs: allows a single leading "/" (namePrependSlash contract)', async () => {
+        const zip = new NativeZip();
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-name-ok-'));
+        try {
+            const f = path.join(tmp, 'ok.txt');
+            fs.writeFileSync(f, 'ok');
+            // A leading slash is intentionally produced by namePrependSlash — must not be rejected.
+            await zip.addFileFromFs(f, '/data/ok.txt', new Date(), 0o644);
+            const buf = await zipToBuffer(zip);
+            const entries = parseCentralDirectory(buf);
+            expect(entries[0].name).toBe('/data/ok.txt');
+        } finally {
+            fs.rmSync(tmp, {recursive: true, force: true});
+        }
+    });
+});
+
+describe('ZIP length validation (Obs#2)', () => {
+    it('writeToStream: throws descriptive error for oversized comment', async () => {
+        const zip = new NativeZip({comment: 'x'.repeat(65536)});
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-comment-'));
+        try {
+            const f = path.join(tmp, 'f.txt');
+            fs.writeFileSync(f, 'f');
+            await zip.addFileFromFs(f, 'f.txt', new Date(), 0o644);
+            await expect(zipToBuffer(zip)).rejects.toThrow(/comment too long/);
+        } finally {
+            fs.rmSync(tmp, {recursive: true, force: true});
+        }
+    });
+
+    it('writeToStream: throws descriptive error for oversized entry name', async () => {
+        const zip = new NativeZip();
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-longname-'));
+        try {
+            const f = path.join(tmp, 'f.txt');
+            fs.writeFileSync(f, 'f');
+            // Name has no ".." so it passes the sanitization check and reaches the length check.
+            const longName = 'n'.repeat(70000) + '.txt';
+            await zip.addFileFromFs(f, longName, new Date(), 0o644);
+            await expect(zipToBuffer(zip)).rejects.toThrow(/entry name too long/);
+        } finally {
+            fs.rmSync(tmp, {recursive: true, force: true});
+        }
+    });
+});
