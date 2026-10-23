@@ -603,5 +603,6 @@ Special thanks to contributors:
 - @nesvet
 - @schplitt – string-literal compression levels refactor ([PR #70](https://github.com/maugenst/zip-a-folder/pull/70))
 - @Pomax – `exclude` option feature request ([issue #65](https://github.com/maugenst/zip-a-folder/issues/65))
+- @DragonPwn (Abdullah Hassan) – responsible disclosure of the glob cwd-escape vulnerability fixed in v7.0.1
 
 Additional thanks to everyone helping shape the native rewrite.
