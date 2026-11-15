@@ -43,7 +43,7 @@ export type CoreOptions = {
 export type ZipArchiveOptions = CoreOptions & {
     /** Sets the zip archive comment. */
     comment?: string;
-    /** Forces the archive to contain local file times instead of UTC. */
+    /** Store local file times (default). Set to false to store UTC times instead. */
     forceLocalTime?: boolean;
     /**
      * Forces the archive to contain ZIP64 headers.
