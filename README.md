@@ -165,7 +165,7 @@ await zip('/path/to/folder', '/path/to/archive.zip', {
 | Option              | Type          | Description                          |
 | ------------------- | ------------- | ------------------------------------ |
 | `comment`           | `string`      | ZIP file comment                     |
-| `forceLocalTime`    | `boolean`     | Use local timestamps instead of UTC  |
+| `forceLocalTime`    | `boolean`     | Local timestamps (default `true`); `false` stores UTC |
 | `forceZip64`        | `boolean`     | Always include ZIP64 headers         |
 | `namePrependSlash`  | `boolean`     | Prefix all ZIP entry names with `/`  |
 | `store`             | `boolean`     | Force STORE method (no compression)  |
