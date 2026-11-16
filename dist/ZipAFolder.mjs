@@ -604,7 +604,7 @@ var NativeZip = class {
 	constructor(options = {}) {
 		this.entries = [];
 		this.comment = options.comment;
-		this.useLocalTime = options.forceLocalTime === true;
+		this.useLocalTime = options.forceLocalTime !== false;
 		this.forceZip64 = options.forceZip64 === true;
 		this.store = options.store === true;
 		this.zlibOptions = options.zlib;
