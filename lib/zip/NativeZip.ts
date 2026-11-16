@@ -1,7 +1,14 @@
 // src/zip/NativeZip.ts
 import * as fs from 'fs';
+import {promisify} from 'util';
 import * as zlib from 'zlib';
 import {crc32, dateToDosDate, dateToDosTime, writeUInt64LE} from '../core/utils';
+
+/**
+ * Asynchronous raw DEFLATE. Moves compression onto Node's threadpool so it does
+ * not block the event loop while files are being zipped.
+ */
+const deflateRawAsync = promisify(zlib.deflateRaw);
 
 /**
  * Low-level ZIP entry representation.
@@ -141,7 +148,7 @@ export class NativeZip {
             compressed = data;
             method = 0; // STORE
         } else {
-            compressed = zlib.deflateRawSync(data, this.zlibOptions);
+            compressed = await deflateRawAsync(data, this.zlibOptions ?? {});
             method = 8; // DEFLATE
         }
 
@@ -182,8 +189,14 @@ export class NativeZip {
                 for (const entry of this.entries) {
                     const nameBuffer = Buffer.from(entry.name, 'utf8');
                     if (nameBuffer.length > 0xffff) {
-                        throw new Error(`ZIP entry name too long: "${entry.name.slice(0, 40)}..." is ${nameBuffer.length} bytes (max 65535)`);
+                        throw new Error(
+                            `ZIP entry name too long: "${entry.name.slice(0, 40)}..." is ${nameBuffer.length} bytes (max 65535)`
+                        );
                     }
+                    // Set the "language encoding" flag (general purpose bit 11) whenever the
+                    // UTF-8 encoded name differs from its byte-for-byte latin1 form, i.e. it
+                    // contains non-ASCII characters. This tells readers the name is UTF-8.
+                    const utf8Flag = Buffer.from(entry.name, 'latin1').equals(nameBuffer) ? 0x0000 : 0x0800;
                     const dosTime = dateToDosTime(entry.date, this.useLocalTime);
                     const dosDate = dateToDosDate(entry.date, this.useLocalTime);
 
@@ -224,7 +237,7 @@ export class NativeZip {
                     localHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
                     p += 2;
                     // general purpose bit flag
-                    localHeader.writeUInt16LE(0x0000, p);
+                    localHeader.writeUInt16LE(utf8Flag, p);
                     p += 2;
                     // compression method
                     localHeader.writeUInt16LE(entry.compressionMethod, p);
@@ -289,7 +302,7 @@ export class NativeZip {
                     centralHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
                     p += 2;
                     // general purpose bit flag
-                    centralHeader.writeUInt16LE(0x0000, p);
+                    centralHeader.writeUInt16LE(utf8Flag, p);
                     p += 2;
                     // compression method
                     centralHeader.writeUInt16LE(entry.compressionMethod, p);

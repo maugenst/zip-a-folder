@@ -87,7 +87,7 @@ A major rewrite using:
 - New `brotliOptions` for fine-grained control over brotli compression parameters.
 - New `compressionLevel` option (1-9) for 7z archives to control LZMA compression level.
 
-### Version 7 (current)
+### Version 7
 
 - **Native LZMA via `@napi-rs/lzma`** replaces the pure-JavaScript `lzma-js` for 7z compression.
   Pre-built binaries are downloaded automatically at `npm install` for 17 platforms (Linux x64/arm64 GNU+musl, macOS x64/arm64, Windows x64/arm64/x32, FreeBSD, Android, RISC-V) with a WASM fallback for everything else. No compiler or `node-gyp` required.
@@ -102,6 +102,12 @@ A major rewrite using:
 - **Security fix (glob mode — all formats):** Glob patterns that escape the working directory (patterns containing `..` segments, or absolute paths) now throw a descriptive error instead of silently packaging files from outside cwd. Reported by Abdullah Hassan ([@DragonPwn](https://github.com/DragonPwn)) via coordinated disclosure.
 - **ZIP entry-name hardening:** Archive entry names containing `..` path segments (e.g. produced by a `destPath: '../../poc'` option) now throw an error at the point the entry is added, preventing Zip-Slip on extraction by tools that don't sanitize entry names.
 - **ZIP length validation:** Passing a comment or entry name whose UTF-8 byte length exceeds 65535 (the ZIP format's 16-bit limit) now throws a descriptive error instead of an uncaught `RangeError` that crashed the calling process.
+
+### Version 7.1 (current)
+
+- **UTF-8 ZIP filenames:** ZIP entries whose names contain non-ASCII characters (e.g. `Zoë.txt`, `café/`) now set the language-encoding flag (general-purpose bit 11, `0x0800`) in both the local file header and the central directory. Readers such as Python's `zipfile` now decode accented names correctly instead of mojibake like `Zo├½.txt`. Pure-ASCII names are unaffected. Fixes [issue #75](https://github.com/maugenst/zip-a-folder/issues/75) reported by [@DocBouCou](https://github.com/DocBouCou).
+- **Non-blocking ZIP compression:** `NativeZip` now compresses file data with the asynchronous `zlib.deflateRaw` (running on Node's threadpool) instead of the synchronous `deflateRawSync`, so zipping no longer blocks the event loop. The public Promise-based API is unchanged. Fixes [issue #76](https://github.com/maugenst/zip-a-folder/issues/76) reported by [@DocBouCou](https://github.com/DocBouCou).
+- **Security fix (symlink escape — all formats):** A symlink inside the source tree could smuggle files from outside it into an archive, bypassing the v7.0.1 cwd-escape guard. In directory mode a symlinked directory was walked (archiving its target's files under the link name, e.g. `linkdir/key.txt`); in glob mode a symlinked file (`linkfile.txt`) or files reached through a symlinked directory were followed via `fs.stat`. Both collectors now pass `followSymbolicLinks: false` to the glob and additionally reject symlinks with `lstat`, so only files genuinely inside the source tree are archived. This also covers `tar()` and `sevenZip()`, which use the same collectors. Found with automated differential testing by the [UCSB PLSE group](https://ucsbplse.github.io/) and reported via coordinated disclosure.
 
 ---
 
@@ -354,6 +360,8 @@ If no files match, zip-a-folder throws:
 Error: No glob match found
 ```
 
+> **Symlinks are not followed.** Both directory and glob sources are enumerated with `followSymbolicLinks: false` and symlinked entries are additionally skipped. A symlink inside the source tree that points outside it (to a file or a directory) is never archived, so a directory whose contents are controlled by someone else cannot be used to smuggle host files (keys, `.env`, …) into the archive.
+
 ---
 
 ## Destination Path Handling (`destPath`)
@@ -604,5 +612,7 @@ Special thanks to contributors:
 - @schplitt – string-literal compression levels refactor ([PR #70](https://github.com/maugenst/zip-a-folder/pull/70))
 - @Pomax – `exclude` option feature request ([issue #65](https://github.com/maugenst/zip-a-folder/issues/65))
 - @DragonPwn (Abdullah Hassan) – responsible disclosure of the glob cwd-escape vulnerability fixed in v7.0.1
+- @DocBouCou – UTF-8 ZIP filename flag ([issue #75](https://github.com/maugenst/zip-a-folder/issues/75)) and non-blocking async ZIP compression ([issue #76](https://github.com/maugenst/zip-a-folder/issues/76))
+- [UCSB PLSE group](https://ucsbplse.github.io/) – coordinated disclosure of the symlink-escape vulnerability (reached through a symlink, bypassing the v7.0.1 cwd-escape fix), found via automated differential testing
 
 Additional thanks to everyone helping shape the native rewrite.

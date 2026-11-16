@@ -10,7 +10,6 @@ import {PassThrough, Writable} from 'stream';
 import {afterAll, beforeAll, describe, expect, it} from 'bun:test';
 import * as zlib from 'zlib';
 import {collectEntriesFromDirectory, collectGlobEntries} from '../lib/core/FileCollector';
-import {FileEntry} from '../lib/core/types';
 import {crc32, dateToDosDate, dateToDosTime, looksLikeGlob, writeUInt64LE} from '../lib/core/utils';
 import {NativeTar} from '../lib/tar/NativeTar';
 import {COMPRESSION_LEVEL, sevenZip, tar, zip, ZipAFolder as zipafolder} from '../lib/ZipAFolder';
@@ -55,7 +54,7 @@ async function zipToBuffer(zip: NativeZip): Promise<Buffer> {
 }
 
 function parseCentralDirectory(buffer: Buffer) {
-    const entries: Array<{name: string; versionMadeBy: number; externalAttrs: number}> = [];
+    const entries: Array<{name: string; versionMadeBy: number; externalAttrs: number; generalFlag: number}> = [];
     const eocdSig = 0x06054b50;
     for (let i = buffer.length - 22; i >= 0; i--) {
         if (buffer.readUInt32LE(i) === eocdSig) {
@@ -64,15 +63,18 @@ function parseCentralDirectory(buffer: Buffer) {
             let p = cdOffset;
             const cdEnd = cdOffset + cdSize;
             while (p < cdEnd) {
-                if (buffer.readUInt32LE(p) !== 0x02014b50) throw new Error('Bad central header sig');
+                if (buffer.readUInt32LE(p) !== 0x02014b50) {
+                    throw new Error('Bad central header sig');
+                }
                 const versionMadeBy = buffer.readUInt16LE(p + 4);
+                const generalFlag = buffer.readUInt16LE(p + 8);
                 const nameLen = buffer.readUInt16LE(p + 28);
                 const extraLen = buffer.readUInt16LE(p + 30);
                 const commentLen = buffer.readUInt16LE(p + 32);
                 const externalAttrs = buffer.readUInt32LE(p + 38);
                 const nameStart = p + 46;
                 const name = buffer.slice(nameStart, nameStart + nameLen).toString('utf8');
-                entries.push({name, versionMadeBy, externalAttrs});
+                entries.push({name, versionMadeBy, externalAttrs, generalFlag});
                 p = nameStart + nameLen + extraLen + commentLen;
             }
             break;
@@ -94,7 +96,9 @@ describe('7z archive creation', () => {
         const files = await fs.promises.readdir(testOutputDir);
         for (const file of files) {
             if (file.endsWith('.7z')) {
-                await fs.promises.unlink(path.join(testOutputDir, file)).catch(() => {});
+                await fs.promises.unlink(path.join(testOutputDir, file)).catch(() => {
+                    /* ignore cleanup errors */
+                });
             }
         }
     });
@@ -164,9 +168,9 @@ describe('7z archive creation', () => {
     });
 
     it('throws error when target is inside source directory', async () => {
-        await expect(
-            sevenZip(path.join(testDataDir, 'c'), path.join(testDataDir, 'c', 'test.7z'))
-        ).rejects.toThrow('Source and target folder must be different.');
+        await expect(sevenZip(path.join(testDataDir, 'c'), path.join(testDataDir, 'c', 'test.7z'))).rejects.toThrow(
+            'Source and target folder must be different.'
+        );
     });
 
     it('works with glob patterns', async () => {
@@ -188,9 +192,9 @@ describe('7z archive creation', () => {
     });
 
     it('throws error when source is a file, not a directory', async () => {
-        await expect(
-            sevenZip(path.join(testDataDir, 'c', 'c1.txt'), path.join(testOutputDir, 'x.7z'))
-        ).rejects.toThrow('Source must be a directory when no glob pattern is used.');
+        await expect(sevenZip(path.join(testDataDir, 'c', 'c1.txt'), path.join(testOutputDir, 'x.7z'))).rejects.toThrow(
+            'Source must be a directory when no glob pattern is used.'
+        );
     });
 });
 
@@ -357,9 +361,9 @@ describe('Zip-A-Folder — zip and tar', () => {
     });
 
     it('ZIP: source is a file throws', async () => {
-        await expect(
-            zipafolder.zip(path.resolve(testDir, 'data/json/test.json'), testZIP)
-        ).rejects.toThrow(/Source must be a directory when no glob pattern is used./);
+        await expect(zipafolder.zip(path.resolve(testDir, 'data/json/test.json'), testZIP)).rejects.toThrow(
+            /Source must be a directory when no glob pattern is used./
+        );
     });
 
     it('TGZ: source and target in same directory throws', async () => {
@@ -429,14 +433,19 @@ describe('Zip-A-Folder — zip and tar', () => {
     });
 
     it('TGZ: source is a file throws', async () => {
-        await expect(
-            zipafolder.tar(path.resolve(testDir, 'data/json/test.json'), testTAR)
-        ).rejects.toThrow(/Source must be a directory when no glob pattern is used./);
+        await expect(zipafolder.tar(path.resolve(testDir, 'data/json/test.json'), testTAR)).rejects.toThrow(
+            /Source must be a directory when no glob pattern is used./
+        );
     });
 
     it('NativeTar: finalize writes trailer blocks', async () => {
         const chunks: Buffer[] = [];
-        const mem = new Writable({write(chunk, _enc, cb) { chunks.push(Buffer.from(chunk)); cb(); }});
+        const mem = new Writable({
+            write(chunk, _enc, cb) {
+                chunks.push(Buffer.from(chunk));
+                cb();
+            }
+        });
         const tarImpl = new NativeTar(mem as any);
         const stat = fs.statSync(tempNativeFile);
         await tarImpl.addFile({fsPath: tempNativeFile, relativePath: 'file1.txt', isDirectory: false, stat});
@@ -446,10 +455,20 @@ describe('Zip-A-Folder — zip and tar', () => {
 
     it('NativeTar: addDirectory without trailing slash adds it automatically', async () => {
         const chunks: Buffer[] = [];
-        const mem = new Writable({write(chunk, _enc, cb) { chunks.push(Buffer.from(chunk)); cb(); }});
+        const mem = new Writable({
+            write(chunk, _enc, cb) {
+                chunks.push(Buffer.from(chunk));
+                cb();
+            }
+        });
         const tarImpl = new NativeTar(mem as any);
         const stat = fs.statSync(path.resolve(testDir, 'data'));
-        await tarImpl.addDirectory({fsPath: path.resolve(testDir, 'data'), relativePath: 'data', isDirectory: true, stat});
+        await tarImpl.addDirectory({
+            fsPath: path.resolve(testDir, 'data'),
+            relativePath: 'data',
+            isDirectory: true,
+            stat
+        });
         await tarImpl.finalize();
         expect(chunks.reduce((s, b) => s + b.length, 0)).toBeGreaterThan(0);
     });
@@ -461,12 +480,20 @@ describe('Zip-A-Folder — zip and tar', () => {
 
 describe('Tar options', () => {
     let tmpDir: string;
-    beforeAll(() => { tmpDir = makeTmpDir('zaf-bun-tar-opts-'); });
-    afterAll(() => { fs.rmSync(tmpDir, {recursive: true, force: true}); });
+    beforeAll(() => {
+        tmpDir = makeTmpDir('zaf-bun-tar-opts-');
+    });
+    afterAll(() => {
+        fs.rmSync(tmpDir, {recursive: true, force: true});
+    });
 
     it('creates gzipped tar with custom gzipOptions', async () => {
         const out = path.join(tmpDir, 'test.tgz');
-        await tar(testDataDir, out, {gzip: true, compression: COMPRESSION_LEVEL.high, gzipOptions: {chunkSize: 64 * 1024}});
+        await tar(testDataDir, out, {
+            gzip: true,
+            compression: COMPRESSION_LEVEL.high,
+            gzipOptions: {chunkSize: 64 * 1024}
+        });
         expect(fs.statSync(out).size).toBeGreaterThan(0);
     });
 
@@ -483,8 +510,12 @@ describe('Tar options', () => {
 
 describe('Brotli compression for TAR archives', () => {
     let tmpDir: string;
-    beforeAll(() => { tmpDir = makeTmpDir('zaf-bun-brotli-'); });
-    afterAll(() => { fs.rmSync(tmpDir, {recursive: true, force: true}); });
+    beforeAll(() => {
+        tmpDir = makeTmpDir('zaf-bun-brotli-');
+    });
+    afterAll(() => {
+        fs.rmSync(tmpDir, {recursive: true, force: true});
+    });
 
     it('creates brotli-compressed tar', async () => {
         const out = path.join(tmpDir, 'test.tar.br');
@@ -509,7 +540,12 @@ describe('Brotli compression for TAR archives', () => {
         const out = path.join(tmpDir, 'test.custom.tar.br');
         await tar(testDataDir, out, {
             compressionType: 'brotli',
-            brotliOptions: {params: {[zlib.constants.BROTLI_PARAM_QUALITY]: 4, [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT}}
+            brotliOptions: {
+                params: {
+                    [zlib.constants.BROTLI_PARAM_QUALITY]: 4,
+                    [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT
+                }
+            }
         });
         expect(() => zlib.brotliDecompressSync(fs.readFileSync(out))).not.toThrow();
     });
@@ -547,8 +583,12 @@ describe('Brotli compression for TAR archives', () => {
 
 describe('Coverage gap tests', () => {
     let tmpDir: string;
-    beforeAll(() => { tmpDir = makeTmpDir('zaf-bun-coverage-'); });
-    afterAll(() => { fs.rmSync(tmpDir, {recursive: true, force: true}); });
+    beforeAll(() => {
+        tmpDir = makeTmpDir('zaf-bun-coverage-');
+    });
+    afterAll(() => {
+        fs.rmSync(tmpDir, {recursive: true, force: true});
+    });
 
     it('ZIP: medium compression with pre-set zlib.level does not override', async () => {
         const out = path.join(tmpDir, 'medium-preset-level.zip');
@@ -592,7 +632,12 @@ describe('Coverage gap tests', () => {
         const alignedFile = path.join(tmpDir, 'aligned512.bin');
         fs.writeFileSync(alignedFile, Buffer.alloc(512, 0xab));
         const chunks: Buffer[] = [];
-        const mem = new Writable({write(chunk, _enc, cb) { chunks.push(Buffer.from(chunk)); cb(); }});
+        const mem = new Writable({
+            write(chunk, _enc, cb) {
+                chunks.push(Buffer.from(chunk));
+                cb();
+            }
+        });
         const stat = fs.statSync(alignedFile);
         const tarWriter = new NativeTar(mem as any);
         await tarWriter.addFile({fsPath: alignedFile, relativePath: 'aligned512.bin', isDirectory: false, stat});
@@ -613,7 +658,9 @@ describe('Coverage gap tests', () => {
             }
         }
         const badStream = new SyncThrowWritable();
-        badStream.on('error', () => {});
+        badStream.on('error', () => {
+            /* swallow error event so it doesn't crash the test process */
+        });
         await expect(zipper.writeToStream(badStream as any)).rejects.toThrow('sync-throw-from-write');
     });
 });
@@ -624,12 +671,21 @@ describe('Coverage gap tests', () => {
 
 describe('Zip options', () => {
     let tmpDir: string;
-    beforeAll(() => { tmpDir = makeTmpDir('zaf-bun-zip-opts-'); });
-    afterAll(() => { fs.rmSync(tmpDir, {recursive: true, force: true}); });
+    beforeAll(() => {
+        tmpDir = makeTmpDir('zaf-bun-zip-opts-');
+    });
+    afterAll(() => {
+        fs.rmSync(tmpDir, {recursive: true, force: true});
+    });
 
     it('creates zip with comment, forceZip64, namePrependSlash', async () => {
         const out = path.join(tmpDir, 'test.options.zip');
-        await zip(testDataDir, out, {comment: 'test-comment', forceZip64: true, namePrependSlash: true, compression: COMPRESSION_LEVEL.medium});
+        await zip(testDataDir, out, {
+            comment: 'test-comment',
+            forceZip64: true,
+            namePrependSlash: true,
+            compression: COMPRESSION_LEVEL.medium
+        });
         expect(fs.statSync(out).size).toBeGreaterThan(0);
     });
 
@@ -661,11 +717,14 @@ describe('ZIP mode and version fields', () => {
 
             const buf = await zipToBuffer(nzip);
             const entries = parseCentralDirectory(buf);
-            const fileEntry = entries.find((e) => e.name === 'hello.txt')!;
-            const dirEntry = entries.find((e) => e.name === 'subdir/' || e.name === 'subdir')!;
+            const fileEntry = entries.find((e) => e.name === 'hello.txt');
+            const dirEntry = entries.find((e) => e.name === 'subdir/' || e.name === 'subdir');
+            if (!fileEntry || !dirEntry) {
+                throw new Error('expected entries not found');
+            }
 
-            expect(((fileEntry.versionMadeBy >> 8) & 0xff)).toBe(3);
-            expect(((dirEntry.versionMadeBy >> 8) & 0xff)).toBe(3);
+            expect((fileEntry.versionMadeBy >> 8) & 0xff).toBe(3);
+            expect((dirEntry.versionMadeBy >> 8) & 0xff).toBe(3);
             expect((fileEntry.externalAttrs >>> 16) & 0o7777).toBe(0o644);
             expect((dirEntry.externalAttrs >>> 16) & 0o7777).toBe(0o755);
             expect((dirEntry.externalAttrs & 0x10) === 0x10).toBe(true);
@@ -681,6 +740,84 @@ describe('ZIP mode and version fields', () => {
         const entries = parseCentralDirectory(buf);
         expect(entries[0].name).toBe('mydir/');
     });
+
+    it('sets the UTF-8 flag (bit 11) for non-ASCII names in both local and central headers', async () => {
+        const tmp = makeTmpDir('zaf-bun-utf8-');
+        try {
+            const filePath = path.join(tmp, 'file');
+            fs.writeFileSync(filePath, 'Hello');
+
+            const nzip = new NativeZip();
+            await nzip.addFileFromFs(filePath, 'Zoë.txt', new Date(), 0o644);
+            nzip.addDirectoryEntry('café/', new Date(), 0o755);
+            await nzip.addFileFromFs(filePath, 'ascii.txt', new Date(), 0o644);
+
+            const buf = await zipToBuffer(nzip);
+
+            // Central directory flags.
+            const entries = parseCentralDirectory(buf);
+            const accented = entries.find((e) => e.name === 'Zoë.txt');
+            const dir = entries.find((e) => e.name === 'café/');
+            const ascii = entries.find((e) => e.name === 'ascii.txt');
+            if (!accented || !dir || !ascii) {
+                throw new Error('expected entries not found');
+            }
+            expect(accented.generalFlag & 0x0800).toBe(0x0800);
+            expect(dir.generalFlag & 0x0800).toBe(0x0800);
+            expect(ascii.generalFlag & 0x0800).toBe(0x0000);
+
+            // Local header flag for the accented entry mirrors the central one.
+            const localSig = 0x04034b50;
+            const nameBuf = Buffer.from('Zoë.txt', 'utf8');
+            let found = false;
+            for (let i = 0; i + 30 + nameBuf.length <= buf.length; i++) {
+                if (buf.readUInt32LE(i) !== localSig) {
+                    continue;
+                }
+                const nameLen = buf.readUInt16LE(i + 26);
+                if (nameLen !== nameBuf.length) {
+                    continue;
+                }
+                if (!buf.slice(i + 30, i + 30 + nameLen).equals(nameBuf)) {
+                    continue;
+                }
+                expect(buf.readUInt16LE(i + 6) & 0x0800).toBe(0x0800);
+                found = true;
+                break;
+            }
+            expect(found).toBe(true);
+        } finally {
+            fs.rmSync(tmp, {recursive: true, force: true});
+        }
+    });
+
+    it('compresses file contents with async DEFLATE and round-trips via inflateRaw', async () => {
+        const tmp = makeTmpDir('zaf-bun-deflate-');
+        try {
+            const payload = Buffer.from('compress me '.repeat(500));
+            const filePath = path.join(tmp, 'data.txt');
+            fs.writeFileSync(filePath, payload);
+
+            const nzip = new NativeZip();
+            await nzip.addFileFromFs(filePath, 'data.txt', new Date(), 0o644);
+            const buf = await zipToBuffer(nzip);
+
+            // Locate the single local entry, confirm DEFLATE, and inflate the payload.
+            const i = buf.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+            const method = buf.readUInt16LE(i + 8);
+            expect(method).toBe(8); // DEFLATE
+            const nameLen = buf.readUInt16LE(i + 26);
+            const extraLen = buf.readUInt16LE(i + 28);
+            const compSize = buf.readUInt32LE(i + 18);
+            const dataStart = i + 30 + nameLen + extraLen;
+            const compressed = buf.slice(dataStart, dataStart + compSize);
+            expect(compressed.length).toBeLessThan(payload.length);
+            const inflated = zlib.inflateRawSync(compressed);
+            expect(inflated.equals(payload)).toBe(true);
+        } finally {
+            fs.rmSync(tmp, {recursive: true, force: true});
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -694,16 +831,24 @@ describe('FileCollector', () => {
             const dirA = path.join(tmp, 'a');
             const dirB = path.join(tmp, 'b');
             const dirC = path.join(dirB, 'c');
-            fs.mkdirSync(dirA); fs.mkdirSync(dirB); fs.mkdirSync(dirC);
+            fs.mkdirSync(dirA);
+            fs.mkdirSync(dirB);
+            fs.mkdirSync(dirC);
             fs.writeFileSync(path.join(dirA, 'a1.txt'), 'a1');
             fs.writeFileSync(path.join(tmp, 'b.txt'), 'b');
             fs.writeFileSync(path.join(dirC, 'c1.txt'), 'c1');
-            try { fs.symlinkSync(path.join(tmp, 'b.txt'), path.join(tmp, 'link')); } catch {}
+            try {
+                fs.symlinkSync(path.join(tmp, 'b.txt'), path.join(tmp, 'link'));
+            } catch {
+                /* symlinks may be unavailable on some platforms */
+            }
 
             const entries = await collectEntriesFromDirectory(tmp, 2);
             const names = entries.map((e) => e.relativePath).sort();
             expect(names).toEqual(['a/', 'a/a1.txt', 'b.txt', 'b/', 'b/c/', 'b/c/c1.txt']);
-            for (const e of entries) expect(e.relativePath.includes('\\')).toBe(false);
+            for (const e of entries) {
+                expect(e.relativePath.includes('\\')).toBe(false);
+            }
             expect(names.includes('link')).toBe(false);
         } finally {
             fs.rmSync(tmp, {recursive: true, force: true});
@@ -762,6 +907,56 @@ describe('FileCollector', () => {
             fs.rmSync(tmp, {recursive: true, force: true});
         }
     });
+
+    // Symlink escape prevention (reported by the UCSB PLSE group).
+    // Build the reported PoC layout, returning {root, src} or null when symlinks
+    // are not permitted on this platform.
+    function buildSymlinkPoc(): {root: string; src: string} | null {
+        const root = makeTmpDir('bun-fc-symlink-');
+        const outsideSecret = path.join(root, 'outside', 'secret');
+        const src = path.join(root, 'src');
+        fs.mkdirSync(outsideSecret, {recursive: true});
+        fs.mkdirSync(src, {recursive: true});
+        fs.writeFileSync(path.join(outsideSecret, 'key.txt'), 'TOPSECRET');
+        fs.writeFileSync(path.join(src, 'readme.txt'), 'hi');
+        try {
+            fs.symlinkSync(path.join('..', 'outside', 'secret'), path.join(src, 'linkdir'));
+            fs.symlinkSync(path.join('..', 'outside', 'secret', 'key.txt'), path.join(src, 'linkfile.txt'));
+        } catch {
+            fs.rmSync(root, {recursive: true, force: true});
+            return null;
+        }
+        return {root, src};
+    }
+
+    it('directory mode: does not descend into a symlinked directory', async () => {
+        const poc = buildSymlinkPoc();
+        if (!poc) {
+            return;
+        }
+        try {
+            const names = (await collectEntriesFromDirectory(poc.src, 2)).map((e) => e.relativePath).sort();
+            expect(names).toEqual(['readme.txt']);
+            expect(names.some((n) => n.includes('key.txt'))).toBe(false);
+        } finally {
+            fs.rmSync(poc.root, {recursive: true, force: true});
+        }
+    });
+
+    it('glob mode: skips a symlinked file and files under a symlinked directory', async () => {
+        const poc = buildSymlinkPoc();
+        if (!poc) {
+            return;
+        }
+        try {
+            const names = (await collectGlobEntries('**/*.txt', poc.src, 2)).map((e) => e.relativePath).sort();
+            expect(names).toEqual(['readme.txt']);
+            expect(names.some((n) => n.includes('key.txt'))).toBe(false);
+            expect(names.includes('linkfile.txt')).toBe(false);
+        } finally {
+            fs.rmSync(poc.root, {recursive: true, force: true});
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -770,8 +965,12 @@ describe('FileCollector', () => {
 
 describe('FileCollector – exclude option', () => {
     let tmp: string;
-    beforeAll(() => { tmp = makeTmpTree(); });
-    afterAll(() => { fs.rmSync(tmp, {recursive: true, force: true}); });
+    beforeAll(() => {
+        tmp = makeTmpTree();
+    });
+    afterAll(() => {
+        fs.rmSync(tmp, {recursive: true, force: true});
+    });
 
     it('no exclude returns all entries', async () => {
         const names = (await collectEntriesFromDirectory(tmp, 4)).map((e) => e.relativePath).sort();
@@ -781,20 +980,28 @@ describe('FileCollector – exclude option', () => {
     });
 
     it('exclude single directory by glob', async () => {
-        const names = (await collectEntriesFromDirectory(tmp, 4, ['dist/**', 'dist/'])).map((e) => e.relativePath).sort();
+        const names = (await collectEntriesFromDirectory(tmp, 4, ['dist/**', 'dist/']))
+            .map((e) => e.relativePath)
+            .sort();
         expect(names).not.toContain('dist/');
         expect(names).toContain('src/app.ts');
     });
 
     it('exclude multiple directories', async () => {
-        const names = (await collectEntriesFromDirectory(tmp, 4, ['dist/**', 'dist/', 'node_modules/**', 'node_modules/'])).map((e) => e.relativePath).sort();
+        const names = (
+            await collectEntriesFromDirectory(tmp, 4, ['dist/**', 'dist/', 'node_modules/**', 'node_modules/'])
+        )
+            .map((e) => e.relativePath)
+            .sort();
         expect(names).not.toContain('dist/bundle.js');
         expect(names).not.toContain('node_modules/dep/index.js');
         expect(names).toContain('src/app.ts');
     });
 
     it('exclude dot-files', async () => {
-        const names = (await collectEntriesFromDirectory(tmp, 4, ['**/.*', '**/.*/**'])).map((e) => e.relativePath).sort();
+        const names = (await collectEntriesFromDirectory(tmp, 4, ['**/.*', '**/.*/**']))
+            .map((e) => e.relativePath)
+            .sort();
         expect(names).not.toContain('.env');
         expect(names).toContain('src/app.ts');
     });
@@ -812,7 +1019,9 @@ describe('FileCollector – exclude option', () => {
     });
 
     it('collectGlobEntries: exclude filters matching files', async () => {
-        const names = (await collectGlobEntries('**/*.js', tmp, 4, ['node_modules/**'])).map((e) => e.relativePath).sort();
+        const names = (await collectGlobEntries('**/*.js', tmp, 4, ['node_modules/**']))
+            .map((e) => e.relativePath)
+            .sort();
         expect(names).toContain('dist/bundle.js');
         expect(names).not.toContain('node_modules/dep/index.js');
     });
@@ -825,8 +1034,14 @@ describe('FileCollector – exclude option', () => {
 describe('zip/tar – exclude option', () => {
     let tmp: string;
     let outDir: string;
-    beforeAll(() => { tmp = makeTmpTree(); outDir = makeTmpDir('zaf-bun-out-'); });
-    afterAll(() => { fs.rmSync(tmp, {recursive: true, force: true}); fs.rmSync(outDir, {recursive: true, force: true}); });
+    beforeAll(() => {
+        tmp = makeTmpTree();
+        outDir = makeTmpDir('zaf-bun-out-');
+    });
+    afterAll(() => {
+        fs.rmSync(tmp, {recursive: true, force: true});
+        fs.rmSync(outDir, {recursive: true, force: true});
+    });
 
     it('ZIP: exclude removes directories from archive', async () => {
         const out = path.join(outDir, 'excl-dir.zip');
