@@ -1,5 +1,5 @@
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-//#region \0rolldown/runtime.js
+// \0rolldown/runtime.js
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -20,7 +20,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	value: mod,
 	enumerable: true
 }) : target, mod));
-//#endregion
 let fs = require("fs");
 fs = __toESM(fs, 1);
 let path = require("path");
@@ -29,7 +28,8 @@ let zlib = require("zlib");
 zlib = __toESM(zlib, 1);
 let _napi_rs_lzma = require("@napi-rs/lzma");
 let tinyglobby = require("tinyglobby");
-//#region lib/7z/Native7z.ts
+let util = require("util");
+// lib/7z/Native7z.ts
 /**
 * 7z archive format constants
 */
@@ -308,8 +308,7 @@ var Native7z = class {
 		return Buffer.concat(parts);
 	}
 };
-//#endregion
-//#region lib/core/FileCollector.ts
+// lib/core/FileCollector.ts
 /**
 * Recursively collect entries (files + directories) under a directory,
 * using a worker pool limited by statConcurrency.
@@ -325,6 +324,7 @@ async function collectEntriesFromDirectory(rootDir, statConcurrency = 4, exclude
 		cwd: root,
 		onlyFiles: false,
 		dot: true,
+		followSymbolicLinks: false,
 		ignore: exclude
 	});
 	statConcurrency = Math.max(1, statConcurrency | 0);
@@ -336,6 +336,7 @@ async function collectEntriesFromDirectory(rootDir, statConcurrency = 4, exclude
 			const rel = relPaths[i];
 			const fsPath = path.join(root, rel);
 			const stat = await fs.promises.lstat(fsPath);
+			/* v8 ignore next 3 */
 			if (stat.isSymbolicLink()) continue;
 			if (stat.isDirectory()) {
 				/* v8 ignore next */
@@ -391,6 +392,7 @@ async function collectGlobEntries(patterns, cwd, statConcurrency = 4, exclude) {
 				cwd,
 				onlyFiles: true,
 				dot: false,
+				followSymbolicLinks: false,
 				ignore: exclude
 			});
 			for (const rel of matches) matchedRelPaths.add(rel.replace(/\\/g, "/"));
@@ -409,7 +411,9 @@ async function collectGlobEntries(patterns, cwd, statConcurrency = 4, exclude) {
 			const rel = relPaths[i];
 			const abs = path.resolve(cwd, rel);
 			_assertInsideCwd(abs, root, rel);
-			const stat = await fs.promises.stat(abs);
+			const stat = await fs.promises.lstat(abs);
+			/* v8 ignore next 3 */
+			if (stat.isSymbolicLink()) continue;
 			/* v8 ignore next 3 */
 			if (!stat.isFile()) continue;
 			entries.push({
@@ -424,8 +428,7 @@ async function collectGlobEntries(patterns, cwd, statConcurrency = 4, exclude) {
 	await Promise.all(workers);
 	return entries;
 }
-//#endregion
-//#region lib/core/utils.ts
+// lib/core/utils.ts
 /**
 * Precomputed CRC32 table for efficient checksum calculation.
 */
@@ -519,8 +522,7 @@ function writeToStream(stream, data) {
 function looksLikeGlob(source) {
 	return /[*?[\]{},]/.test(source);
 }
-//#endregion
-//#region lib/tar/NativeTar.ts
+// lib/tar/NativeTar.ts
 /**
 * Create a 512-byte TAR header block for a file or directory.
 */
@@ -581,8 +583,12 @@ var NativeTar = class {
 		await writeToStream(this.stream, block);
 	}
 };
-//#endregion
-//#region lib/zip/NativeZip.ts
+// lib/zip/NativeZip.ts
+/**
+* Asynchronous raw DEFLATE. Moves compression onto Node's threadpool so it does
+* not block the event loop while files are being zipped.
+*/
+const deflateRawAsync = (0, util.promisify)(zlib.deflateRaw);
 /**
 * Low-level ZIP entry representation.
 */
@@ -668,7 +674,7 @@ var NativeZip = class {
 			compressed = data;
 			method = 0;
 		} else {
-			compressed = zlib.deflateRawSync(data, this.zlibOptions);
+			compressed = await deflateRawAsync(data, this.zlibOptions ?? {});
 			method = 8;
 		}
 		this.entries.push(new ZipEntry({
@@ -699,6 +705,7 @@ var NativeZip = class {
 				for (const entry of this.entries) {
 					const nameBuffer = Buffer.from(entry.name, "utf8");
 					if (nameBuffer.length > 65535) throw new Error(`ZIP entry name too long: "${entry.name.slice(0, 40)}..." is ${nameBuffer.length} bytes (max 65535)`);
+					const utf8Flag = Buffer.from(entry.name, "latin1").equals(nameBuffer) ? 0 : 2048;
 					const dosTime = dateToDosTime(entry.date, this.useLocalTime);
 					const dosDate = dateToDosDate(entry.date, this.useLocalTime);
 					const needsZip64Sizes = entry.compressedSize >= 4294967295 || entry.uncompressedSize >= 4294967295 || this.forceZip64;
@@ -724,7 +731,7 @@ var NativeZip = class {
 					p += 4;
 					localHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
 					p += 2;
-					localHeader.writeUInt16LE(0, p);
+					localHeader.writeUInt16LE(utf8Flag, p);
 					p += 2;
 					localHeader.writeUInt16LE(entry.compressionMethod, p);
 					p += 2;
@@ -769,7 +776,7 @@ var NativeZip = class {
 					p += 2;
 					centralHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
 					p += 2;
-					centralHeader.writeUInt16LE(0, p);
+					centralHeader.writeUInt16LE(utf8Flag, p);
 					p += 2;
 					centralHeader.writeUInt16LE(entry.compressionMethod, p);
 					p += 2;
@@ -901,8 +908,7 @@ var NativeZip = class {
 		});
 	}
 };
-//#endregion
-//#region lib/ZipAFolder.ts
+// lib/ZipAFolder.ts
 const COMPRESSION_LEVEL = {
 	uncompressed: "uncompressed",
 	medium: "medium",
@@ -1144,7 +1150,6 @@ function tar(source, targetFilePath, options) {
 function sevenZip(source, targetFilePath, options) {
 	return ZipAFolder.sevenZip(source, targetFilePath, options ?? {});
 }
-//#endregion
 exports.COMPRESSION_LEVEL = COMPRESSION_LEVEL;
 exports.ZipAFolder = ZipAFolder;
 exports.sevenZip = sevenZip;

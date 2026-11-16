@@ -3,12 +3,13 @@ import os from 'os';
 import path from 'path';
 import {PassThrough} from 'stream';
 import {describe, expect, it} from 'vitest';
+import * as zlib from 'zlib';
 import {NativeZip} from '../lib/zip/NativeZip'; // adjust path if needed
 
 // Helper: parse central directory entries from a zip Buffer.
 // We only parse enough to extract: file name, version made by, external file attributes.
 function parseCentralDirectory(buffer: Buffer) {
-    const entries: Array<{name: string; versionMadeBy: number; externalAttrs: number}> = [];
+    const entries: Array<{name: string; versionMadeBy: number; externalAttrs: number; generalFlag: number}> = [];
     // Find End of Central Directory record (EOCD, 0x06054b50)
     const eocdSig = 0x06054b50;
     // Search from end
@@ -25,6 +26,7 @@ function parseCentralDirectory(buffer: Buffer) {
                     throw new Error('Bad central header sig');
                 }
                 const versionMadeBy = buffer.readUInt16LE(p + 4);
+                const generalFlag = buffer.readUInt16LE(p + 8);
                 const nameLen = buffer.readUInt16LE(p + 28);
                 const extraLen = buffer.readUInt16LE(p + 30);
                 const commentLen = buffer.readUInt16LE(p + 32);
@@ -32,7 +34,7 @@ function parseCentralDirectory(buffer: Buffer) {
                 const externalAttrs = buffer.readUInt32LE(p + 38);
                 const nameStart = p + 46;
                 const name = buffer.slice(nameStart, nameStart + nameLen).toString('utf8');
-                entries.push({name, versionMadeBy, externalAttrs});
+                entries.push({name, versionMadeBy, externalAttrs, generalFlag});
                 p = nameStart + nameLen + extraLen + commentLen;
             }
             break;
@@ -116,14 +118,90 @@ describe('ZIP mode and version fields', () => {
         expect(entries[0].name.endsWith('/')).toBe(true);
         expect(entries[0].name).toBe('mydir/');
     });
+
+    it('sets the UTF-8 flag (bit 11) for non-ASCII names in both local and central headers (issue #75)', async () => {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-utf8-'));
+        try {
+            const filePath = path.join(tmp, 'file');
+            fs.writeFileSync(filePath, 'Hello');
+
+            const zip = new NativeZip();
+            await zip.addFileFromFs(filePath, 'Zoë.txt', new Date(), 0o644);
+            zip.addDirectoryEntry('café/', new Date(), 0o755);
+            await zip.addFileFromFs(filePath, 'ascii.txt', new Date(), 0o644);
+
+            const buf = await zipToBuffer(zip);
+
+            // Central directory flags: set for accented names, unset for pure ASCII.
+            const entries = parseCentralDirectory(buf);
+            const accented = entries.find((e) => e.name === 'Zoë.txt');
+            const dir = entries.find((e) => e.name === 'café/');
+            const ascii = entries.find((e) => e.name === 'ascii.txt');
+            expect(accented).toBeDefined();
+            expect(dir).toBeDefined();
+            expect(ascii).toBeDefined();
+            expect((accented as any).generalFlag & 0x0800).toBe(0x0800);
+            expect((dir as any).generalFlag & 0x0800).toBe(0x0800);
+            expect((ascii as any).generalFlag & 0x0800).toBe(0x0000);
+
+            // The local header for the accented entry must mirror the central flag.
+            const localSig = 0x04034b50;
+            const nameBuf = Buffer.from('Zoë.txt', 'utf8');
+            let found = false;
+            for (let i = 0; i + 30 + nameBuf.length <= buf.length; i++) {
+                if (buf.readUInt32LE(i) !== localSig) {
+                    continue;
+                }
+                const nameLen = buf.readUInt16LE(i + 26);
+                if (nameLen !== nameBuf.length) {
+                    continue;
+                }
+                if (!buf.slice(i + 30, i + 30 + nameLen).equals(nameBuf)) {
+                    continue;
+                }
+                expect(buf.readUInt16LE(i + 6) & 0x0800).toBe(0x0800);
+                found = true;
+                break;
+            }
+            expect(found).toBe(true);
+        } finally {
+            fs.rmSync(tmp, {recursive: true, force: true});
+        }
+    });
+
+    it('compresses file contents with async DEFLATE and round-trips via inflateRaw (issue #76)', async () => {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-deflate-'));
+        try {
+            const payload = Buffer.from('compress me '.repeat(500));
+            const filePath = path.join(tmp, 'data.txt');
+            fs.writeFileSync(filePath, payload);
+
+            const zip = new NativeZip();
+            await zip.addFileFromFs(filePath, 'data.txt', new Date(), 0o644);
+            const buf = await zipToBuffer(zip);
+
+            // Locate the single local entry, confirm DEFLATE, and inflate the payload.
+            const i = buf.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+            const method = buf.readUInt16LE(i + 8);
+            expect(method).toBe(8); // DEFLATE
+            const nameLen = buf.readUInt16LE(i + 26);
+            const extraLen = buf.readUInt16LE(i + 28);
+            const compSize = buf.readUInt32LE(i + 18);
+            const dataStart = i + 30 + nameLen + extraLen;
+            const compressed = buf.slice(dataStart, dataStart + compSize);
+            expect(compressed.length).toBeLessThan(payload.length);
+            const inflated = zlib.inflateRawSync(compressed);
+            expect(inflated.equals(payload)).toBe(true);
+        } finally {
+            fs.rmSync(tmp, {recursive: true, force: true});
+        }
+    });
 });
 
 describe('ZIP entry-name sanitization (Obs#1)', () => {
     it('addDirectoryEntry: rejects a name with ".." segment (sync throw)', () => {
         const zip = new NativeZip();
-        expect(() => zip.addDirectoryEntry('../../poc/', new Date(), 0o755)).toThrow(
-            /traversal|Unsafe archive entry/
-        );
+        expect(() => zip.addDirectoryEntry('../../poc/', new Date(), 0o755)).toThrow(/traversal|Unsafe archive entry/);
     });
 
     it('addFileFromFs: rejects a name with ".." segment (async reject)', async () => {

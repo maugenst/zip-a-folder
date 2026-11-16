@@ -165,9 +165,7 @@ describe('FileCollector', () => {
         it('rejects a "../" traversal pattern', async () => {
             const tmp = makeTmpDir('fc-escape-dotdot-');
             try {
-                await expect(collectGlobEntries('../*.txt', tmp, 2)).rejects.toThrow(
-                    /escapes the working directory/
-                );
+                await expect(collectGlobEntries('../*.txt', tmp, 2)).rejects.toThrow(/escapes the working directory/);
             } finally {
                 fs.rmSync(tmp, {recursive: true, force: true});
             }
@@ -188,9 +186,7 @@ describe('FileCollector', () => {
             const tmp = makeTmpDir('fc-escape-abs-');
             try {
                 const absPat = path.join(path.dirname(tmp), '*.txt');
-                await expect(collectGlobEntries(absPat, tmp, 2)).rejects.toThrow(
-                    /escapes the working directory/
-                );
+                await expect(collectGlobEntries(absPat, tmp, 2)).rejects.toThrow(/escapes the working directory/);
             } finally {
                 fs.rmSync(tmp, {recursive: true, force: true});
             }
@@ -232,6 +228,64 @@ describe('FileCollector', () => {
                 expect(rels).toEqual(['sub/c.txt']);
             } finally {
                 fs.rmSync(tmp, {recursive: true, force: true});
+            }
+        });
+    });
+
+    describe('symlink escape prevention (reported by UCSB PLSE group)', () => {
+        // Build the reported PoC layout:
+        //   outside/secret/key.txt   (file to protect, lives outside the source tree)
+        //   src/readme.txt           (legitimate in-tree file)
+        //   src/linkdir     -> ../outside/secret        (symlinked directory)
+        //   src/linkfile.txt -> ../outside/secret/key.txt (symlinked file)
+        // Returns {root, src} or null when symlinks are not permitted.
+        function buildPoc(): {root: string; src: string} | null {
+            const root = makeTmpDir('fc-symlink-');
+            const outsideSecret = path.join(root, 'outside', 'secret');
+            const src = path.join(root, 'src');
+            fs.mkdirSync(outsideSecret, {recursive: true});
+            fs.mkdirSync(src, {recursive: true});
+            fs.writeFileSync(path.join(outsideSecret, 'key.txt'), 'TOPSECRET');
+            fs.writeFileSync(path.join(src, 'readme.txt'), 'hi');
+            try {
+                fs.symlinkSync(path.join('..', 'outside', 'secret'), path.join(src, 'linkdir'));
+                fs.symlinkSync(path.join('..', 'outside', 'secret', 'key.txt'), path.join(src, 'linkfile.txt'));
+            } catch {
+                // Symlinks not permitted on this platform/filesystem — skip.
+                fs.rmSync(root, {recursive: true, force: true});
+                return null;
+            }
+            return {root, src};
+        }
+
+        it('directory mode: does not descend into a symlinked directory', async () => {
+            const poc = buildPoc();
+            if (!poc) {
+                return;
+            }
+            try {
+                const entries = await collectEntriesFromDirectory(poc.src, 2);
+                const names = entries.map((e) => e.relativePath).sort();
+                expect(names).toEqual(['readme.txt']);
+                expect(names.some((n) => n.includes('key.txt'))).toBe(false);
+            } finally {
+                fs.rmSync(poc.root, {recursive: true, force: true});
+            }
+        });
+
+        it('glob mode: skips a symlinked file and files under a symlinked directory', async () => {
+            const poc = buildPoc();
+            if (!poc) {
+                return;
+            }
+            try {
+                const entries = await collectGlobEntries('**/*.txt', poc.src, 2);
+                const names = entries.map((e) => e.relativePath).sort();
+                expect(names).toEqual(['readme.txt']);
+                expect(names.some((n) => n.includes('key.txt'))).toBe(false);
+                expect(names.includes('linkfile.txt')).toBe(false);
+            } finally {
+                fs.rmSync(poc.root, {recursive: true, force: true});
             }
         });
     });

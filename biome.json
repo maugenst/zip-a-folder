@@ -1,5 +1,5 @@
 {
-    "$schema": "https://biomejs.dev/schemas/2.3.6/schema.json",
+    "$schema": "https://biomejs.dev/schemas/2.6.7/schema.json",
     "vcs": { "enabled": false, "clientKind": "git", "useIgnoreFile": false },
     "files": {
         "ignoreUnknown": false
@@ -19,7 +19,7 @@
     "linter": {
         "enabled": true,
         "rules": {
-            "recommended": false,
+            "preset": "none",
             "complexity": {
                 "noBannedTypes": "error",
                 "noUselessThisAlias": "error",

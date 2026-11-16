@@ -22,10 +22,17 @@ export async function collectEntriesFromDirectory(
 
     // Use tinyglobby to enumerate all paths (files + dirs), respecting the
     // exclude list via the built-in `ignore` option.
+    //
+    // followSymbolicLinks: false prevents tinyglobby from descending into a
+    // symlinked directory inside the tree (which would otherwise enumerate the
+    // link target's files under the link's name, e.g. "linkdir/secret.txt").
+    // A symlink that is itself listed as an entry is additionally dropped by the
+    // lstat check in the worker below.
     const relPaths = globSync('**/*', {
         cwd: root,
         onlyFiles: false,
         dot: true,
+        followSymbolicLinks: false,
         ignore: exclude
     });
 
@@ -43,7 +50,10 @@ export async function collectEntriesFromDirectory(
             const fsPath = path.join(root, rel);
             const stat = await fs.promises.lstat(fsPath);
 
-            // Skip symlinks (same behavior as original readdir-based walker)
+            // Defense-in-depth: skip any symlink. With followSymbolicLinks:false
+            // above, tinyglobby already drops symlinks from the listing, so this
+            // only fires if one races in between enumeration and lstat (TOCTOU).
+            /* v8 ignore next 3 */
             if (stat.isSymbolicLink()) {
                 continue;
             }
@@ -120,7 +130,9 @@ export async function collectGlobEntries(
         // Guard: reject patterns that escape cwd. Must run BEFORE the try/catch
         // below, which swallows all errors (so a throw inside would be lost).
         if (path.isAbsolute(pattern)) {
-            throw new Error(`Glob pattern escapes the working directory: "${pattern}" (absolute paths are not allowed)`);
+            throw new Error(
+                `Glob pattern escapes the working directory: "${pattern}" (absolute paths are not allowed)`
+            );
         }
         if (RE_DOTDOT.test(pattern.replace(/\\/g, '/'))) {
             throw new Error(`Glob pattern escapes the working directory: "${pattern}" (.. segments are not allowed)`);
@@ -131,6 +143,7 @@ export async function collectGlobEntries(
                 cwd,
                 onlyFiles: true,
                 dot: false,
+                followSymbolicLinks: false,
                 ignore: exclude
             });
 
@@ -168,7 +181,17 @@ export async function collectGlobEntries(
             // Defensive containment check: reject any match that resolves outside cwd.
             _assertInsideCwd(abs, root, rel);
 
-            const stat = await fs.promises.stat(abs);
+            // Use lstat (not stat) so a symlinked match is detected and skipped
+            // rather than followed. Combined with followSymbolicLinks: false on
+            // the glob, this prevents archiving files outside the source tree via
+            // a symlinked file or a symlinked parent directory. tinyglobby already
+            // drops symlinks from the listing, so these guards are defense-in-depth
+            // (e.g. a symlink racing in between glob and lstat — TOCTOU).
+            const stat = await fs.promises.lstat(abs);
+            /* v8 ignore next 3 */
+            if (stat.isSymbolicLink()) {
+                continue;
+            }
             /* v8 ignore next 3 */
             if (!stat.isFile()) {
                 continue;
