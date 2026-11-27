@@ -26,7 +26,6 @@ Feature overview:
 
 ## Table of Contents
 
-- [Incompatible Changes](#incompatible-changes)
 - [Installation](#installation)
 - [Usage](#usage)
   - [Create a ZIP file](#create-a-zip-file)
@@ -45,76 +44,7 @@ Feature overview:
 - [Command Line Interface (CLI)](#command-line-interface-cli)
 - [Running Tests](#running-tests)
 - [Thanks](#thanks)
-
----
-
-## Incompatible Changes
-
-### Version 2
-
-Added support for comma-separated glob lists.
-This may change the behavior for cases previously interpreted as "folder only".
-
-### Version 3
-
-Dual-module support (CJS + ESM).
-
-### Version 3.1
-
-Added support for `destPath` to control the internal path layout of created archives.
-
-### Version 4
-
-A major rewrite using:
-
-- **Fully native ZIP writer** (no dependencies)
-- **Native TAR + gzip writer**
-- **ZIP64 support** for large archives
-- **Parallel statting** (`statConcurrency`)
-- **Strict internal path normalization** mirroring classic zip-a-folder behavior
-- **Native glob handling** via `tinyglobby`
-
-### Version 5
-
-- `COMPRESSION_LEVEL` is now a plain `const` object whose values are **string literals** (`'uncompressed'`, `'medium'`, `'high'`) instead of a numeric enum.
-  The public API (`COMPRESSION_LEVEL.high`, etc.) is unchanged — only the underlying type changed from a TypeScript `enum` to a `const satisfies` object. See [PR #70](https://github.com/maugenst/zip-a-folder/pull/70) by [@schplitt](https://github.com/schplitt).
-- Added `exclude` option — an array of glob patterns for files/directories to omit from the archive. See [issue #65](https://github.com/maugenst/zip-a-folder/issues/65) by [@Pomax](https://github.com/Pomax).
-
-### Version 6
-
-- **Native Brotli compression support** for TAR archives using Node.js built-in `zlib.brotliCompressSync()`. Create `.tar.br` files with the new `compressionType: 'brotli'` option. Brotli typically provides better compression ratios than gzip, especially for text-based content.
-- **New 7z archive format support** via the `sevenZip()` function. Uses pure JavaScript LZMA compression (via `lzma-js` library) — no external binaries required. Provides excellent compression ratios with the industry-standard 7z format.
-- New `brotliOptions` for fine-grained control over brotli compression parameters.
-- New `compressionLevel` option (1-9) for 7z archives to control LZMA compression level.
-
-### Version 7
-
-- **Native LZMA via `@napi-rs/lzma`** replaces the pure-JavaScript `lzma-js` for 7z compression.
-  Pre-built binaries are downloaded automatically at `npm install` for 17 platforms (Linux x64/arm64 GNU+musl, macOS x64/arm64, Windows x64/arm64/x32, FreeBSD, Android, RISC-V) with a WASM fallback for everything else. No compiler or `node-gyp` required.
-  This is a **significant performance improvement** — compression is 5–10× faster than the old pure-JS implementation.
-- **Node.js ≥ 22.20 required** (imposed by `@napi-rs/lzma`). Specifically: `^22.20 || ^24.12 || >=25`.
-  Node 20 and Node 23 are no longer supported.
-- The **7z options API is unchanged** — no migration needed.
-- Fixes [issue #73](https://github.com/maugenst/zip-a-folder/issues/73): the process no longer hangs after `sevenZip()` completes (caused by open handles in the old pure-JS worker thread).
-
-### Version 7.0.1 (security patch)
-
-- **Security fix (glob mode — all formats):** Glob patterns that escape the working directory (patterns containing `..` segments, or absolute paths) now throw a descriptive error instead of silently packaging files from outside cwd. Reported by Abdullah Hassan ([@DragonPwn](https://github.com/DragonPwn)) via coordinated disclosure.
-- **ZIP entry-name hardening:** Archive entry names containing `..` path segments (e.g. produced by a `destPath: '../../poc'` option) now throw an error at the point the entry is added, preventing Zip-Slip on extraction by tools that don't sanitize entry names.
-- **ZIP length validation:** Passing a comment or entry name whose UTF-8 byte length exceeds 65535 (the ZIP format's 16-bit limit) now throws a descriptive error instead of an uncaught `RangeError` that crashed the calling process.
-
-### Version 7.1
-
-- **UTF-8 ZIP filenames:** ZIP entries whose names contain non-ASCII characters (e.g. `Zoë.txt`, `café/`) now set the language-encoding flag (general-purpose bit 11, `0x0800`) in both the local file header and the central directory. Readers such as Python's `zipfile` now decode accented names correctly instead of mojibake like `Zo├½.txt`. Pure-ASCII names are unaffected. Fixes [issue #75](https://github.com/maugenst/zip-a-folder/issues/75) reported by [@DocBouCou](https://github.com/DocBouCou).
-- **Non-blocking ZIP compression:** `NativeZip` now compresses file data with the asynchronous `zlib.deflateRaw` (running on Node's threadpool) instead of the synchronous `deflateRawSync`, so zipping no longer blocks the event loop. The public Promise-based API is unchanged. Fixes [issue #76](https://github.com/maugenst/zip-a-folder/issues/76) reported by [@DocBouCou](https://github.com/DocBouCou).
-- **Security fix (symlink escape — all formats):** A symlink inside the source tree could smuggle files from outside it into an archive, bypassing the v7.0.1 cwd-escape guard. In directory mode a symlinked directory was walked (archiving its target's files under the link name, e.g. `linkdir/key.txt`); in glob mode a symlinked file (`linkfile.txt`) or files reached through a symlinked directory were followed via `fs.stat`. Both collectors now pass `followSymbolicLinks: false` to the glob and additionally reject symlinks with `lstat`, so only files genuinely inside the source tree are archived. This also covers `tar()` and `sevenZip()`, which use the same collectors. Found with automated differential testing by the [UCSB PLSE group](https://ucsbplse.github.io/) and reported via coordinated disclosure.
-- **ZIP timestamps now default to local time:** ZIP stores file times in DOS date/time fields, which carry no timezone and are read as **local time** by virtually every tool (`unzip`, Python `zipfile`, 7-Zip, Windows). Previously `NativeZip` wrote UTC unless `forceLocalTime: true` was passed, so outside UTC extracted mtimes were off by the UTC offset. Local time is now the default; pass `forceLocalTime: false` to keep the old UTC behaviour. Fixes [issue #61](https://github.com/maugenst/zip-a-folder/issues/61) via [PR #77](https://github.com/maugenst/zip-a-folder/pull/77) by [@jayhemnani9910](https://github.com/jayhemnani9910).
-
-### Version 7.2.1 (current)
-
-- **7z archives are no longer corrupt.** The native 7z writer produced files that every 7-Zip reader rejected with `Headers Error`. Three faults combined: the packed data was an XZ-container stream placed behind an LZMA1 coder, the coder carried no LZMA property bytes, and the 7z variable-length integer encoder was wrong for any value ≥ 128 (so any archive larger than ~127 bytes broke). The writer now emits a single **solid raw-LZMA stream** with the correct 5-byte coder properties and a corrected number encoder, stores paths with forward slashes, and records a per-file CRC. Archives now open and extract in 7-Zip / p7zip, and the solid layout compresses noticeably better than before. Compression still runs purely through the native `@napi-rs/lzma` dependency — no external binaries. Fixes [issue #81](https://github.com/maugenst/zip-a-folder/issues/81) reported by [@vitaly-t](https://github.com/vitaly-t).
-- **`zip()`, `tar()` and `sevenZip()` now resolve with `{ count, size }`** — the number of regular files written to the archive and the archive's size in bytes — instead of `void`. The size is measured from the bytes actually written, so it is correct even when writing to a `customWriteStream` (where there is no target path to `stat`). Existing callers that ignore the return value are unaffected. Fixes [issue #80](https://github.com/maugenst/zip-a-folder/issues/80) requested by [@vitaly-t](https://github.com/vitaly-t).
-- **CLI summary reflects the real archive.** The `zip-a-folder` CLI now takes the compressed size and the written-file count straight from the archive result, so the completion summary reports exactly what was archived (honouring `--exclude` and glob matching) instead of re-walking the source.
+- [Changelog](#changelog)
 
 ---
 
@@ -644,6 +574,78 @@ Special thanks to contributors:
 - @DragonPwn (Abdullah Hassan) – responsible disclosure of the glob cwd-escape vulnerability fixed in v7.0.1
 - @DocBouCou – UTF-8 ZIP filename flag ([issue #75](https://github.com/maugenst/zip-a-folder/issues/75)) and non-blocking async ZIP compression ([issue #76](https://github.com/maugenst/zip-a-folder/issues/76))
 - [UCSB PLSE group](https://ucsbplse.github.io/) – coordinated disclosure of the symlink-escape vulnerability (reached through a symlink, bypassing the v7.0.1 cwd-escape fix), found via automated differential testing
-- @jayhemnani9910 (Jay Hemnani) – default ZIP timestamps to local time ([issue #61](https://github.com/maugenst/zip-a-folder/issues/61), [PR #77](https://github.com/maugenst/zip-a-folder/pull/77))
+- @jayhemnani9910 (Jay Hemnani) – default ZIP timestamps to local time ([issue #61](https://github.com/maugenst/zip-a-folder/issues/61), [PR #77](https://github.com/maugenst/zip-a-folder/pull/77)) and the long-path TAR PAX fix ([PR #82](https://github.com/maugenst/zip-a-folder/pull/82))
+- @vitaly-t (Code Scratcher) – reporting the corrupt 7z output ([issue #81](https://github.com/maugenst/zip-a-folder/issues/81)) and requesting the `{ count, size }` archive result ([issue #80](https://github.com/maugenst/zip-a-folder/issues/80))
 
 Additional thanks to everyone helping shape the native rewrite.
+
+---
+
+## Changelog
+
+### Version 2
+
+Added support for comma-separated glob lists.
+This may change the behavior for cases previously interpreted as "folder only".
+
+### Version 3
+
+Dual-module support (CJS + ESM).
+
+### Version 3.1
+
+Added support for `destPath` to control the internal path layout of created archives.
+
+### Version 4
+
+A major rewrite using:
+
+- **Fully native ZIP writer** (no dependencies)
+- **Native TAR + gzip writer**
+- **ZIP64 support** for large archives
+- **Parallel statting** (`statConcurrency`)
+- **Strict internal path normalization** mirroring classic zip-a-folder behavior
+- **Native glob handling** via `tinyglobby`
+
+### Version 5
+
+- `COMPRESSION_LEVEL` is now a plain `const` object whose values are **string literals** (`'uncompressed'`, `'medium'`, `'high'`) instead of a numeric enum.
+  The public API (`COMPRESSION_LEVEL.high`, etc.) is unchanged — only the underlying type changed from a TypeScript `enum` to a `const satisfies` object. See [PR #70](https://github.com/maugenst/zip-a-folder/pull/70) by [@schplitt](https://github.com/schplitt).
+- Added `exclude` option — an array of glob patterns for files/directories to omit from the archive. See [issue #65](https://github.com/maugenst/zip-a-folder/issues/65) by [@Pomax](https://github.com/Pomax).
+
+### Version 6
+
+- **Native Brotli compression support** for TAR archives using Node.js built-in `zlib.brotliCompressSync()`. Create `.tar.br` files with the new `compressionType: 'brotli'` option. Brotli typically provides better compression ratios than gzip, especially for text-based content.
+- **New 7z archive format support** via the `sevenZip()` function. Uses pure JavaScript LZMA compression (via `lzma-js` library) — no external binaries required. Provides excellent compression ratios with the industry-standard 7z format.
+- New `brotliOptions` for fine-grained control over brotli compression parameters.
+- New `compressionLevel` option (1-9) for 7z archives to control LZMA compression level.
+
+### Version 7
+
+- **Native LZMA via `@napi-rs/lzma`** replaces the pure-JavaScript `lzma-js` for 7z compression.
+  Pre-built binaries are downloaded automatically at `npm install` for 17 platforms (Linux x64/arm64 GNU+musl, macOS x64/arm64, Windows x64/arm64/x32, FreeBSD, Android, RISC-V) with a WASM fallback for everything else. No compiler or `node-gyp` required.
+  This is a **significant performance improvement** — compression is 5–10× faster than the old pure-JS implementation.
+- **Node.js ≥ 22.20 required** (imposed by `@napi-rs/lzma`). Specifically: `^22.20 || ^24.12 || >=25`.
+  Node 20 and Node 23 are no longer supported.
+- The **7z options API is unchanged** — no migration needed.
+- Fixes [issue #73](https://github.com/maugenst/zip-a-folder/issues/73): the process no longer hangs after `sevenZip()` completes (caused by open handles in the old pure-JS worker thread).
+
+### Version 7.0.1 (security patch)
+
+- **Security fix (glob mode — all formats):** Glob patterns that escape the working directory (patterns containing `..` segments, or absolute paths) now throw a descriptive error instead of silently packaging files from outside cwd. Reported by Abdullah Hassan ([@DragonPwn](https://github.com/DragonPwn)) via coordinated disclosure.
+- **ZIP entry-name hardening:** Archive entry names containing `..` path segments (e.g. produced by a `destPath: '../../poc'` option) now throw an error at the point the entry is added, preventing Zip-Slip on extraction by tools that don't sanitize entry names.
+- **ZIP length validation:** Passing a comment or entry name whose UTF-8 byte length exceeds 65535 (the ZIP format's 16-bit limit) now throws a descriptive error instead of an uncaught `RangeError` that crashed the calling process.
+
+### Version 7.1
+
+- **UTF-8 ZIP filenames:** ZIP entries whose names contain non-ASCII characters (e.g. `Zoë.txt`, `café/`) now set the language-encoding flag (general-purpose bit 11, `0x0800`) in both the local file header and the central directory. Readers such as Python's `zipfile` now decode accented names correctly instead of mojibake like `Zo├½.txt`. Pure-ASCII names are unaffected. Fixes [issue #75](https://github.com/maugenst/zip-a-folder/issues/75) reported by [@DocBouCou](https://github.com/DocBouCou).
+- **Non-blocking ZIP compression:** `NativeZip` now compresses file data with the asynchronous `zlib.deflateRaw` (running on Node's threadpool) instead of the synchronous `deflateRawSync`, so zipping no longer blocks the event loop. The public Promise-based API is unchanged. Fixes [issue #76](https://github.com/maugenst/zip-a-folder/issues/76) reported by [@DocBouCou](https://github.com/DocBouCou).
+- **Security fix (symlink escape — all formats):** A symlink inside the source tree could smuggle files from outside it into an archive, bypassing the v7.0.1 cwd-escape guard. In directory mode a symlinked directory was walked (archiving its target's files under the link name, e.g. `linkdir/key.txt`); in glob mode a symlinked file (`linkfile.txt`) or files reached through a symlinked directory were followed via `fs.stat`. Both collectors now pass `followSymbolicLinks: false` to the glob and additionally reject symlinks with `lstat`, so only files genuinely inside the source tree are archived. This also covers `tar()` and `sevenZip()`, which use the same collectors. Found with automated differential testing by the [UCSB PLSE group](https://ucsbplse.github.io/) and reported via coordinated disclosure.
+- **ZIP timestamps now default to local time:** ZIP stores file times in DOS date/time fields, which carry no timezone and are read as **local time** by virtually every tool (`unzip`, Python `zipfile`, 7-Zip, Windows). Previously `NativeZip` wrote UTC unless `forceLocalTime: true` was passed, so outside UTC extracted mtimes were off by the UTC offset. Local time is now the default; pass `forceLocalTime: false` to keep the old UTC behaviour. Fixes [issue #61](https://github.com/maugenst/zip-a-folder/issues/61) via [PR #77](https://github.com/maugenst/zip-a-folder/pull/77) by [@jayhemnani9910](https://github.com/jayhemnani9910).
+
+### Version 7.2.2 (current)
+
+- **7z archives are no longer corrupt.** The native 7z writer produced files that every 7-Zip reader rejected with `Headers Error`. Three faults combined: the packed data was an XZ-container stream placed behind an LZMA1 coder, the coder carried no LZMA property bytes, and the 7z variable-length integer encoder was wrong for any value ≥ 128 (so any archive larger than ~127 bytes broke). The writer now emits a single **solid raw-LZMA stream** with the correct 5-byte coder properties and a corrected number encoder, stores paths with forward slashes, and records a per-file CRC. Archives now open and extract in 7-Zip / p7zip, and the solid layout compresses noticeably better than before. Compression still runs purely through the native `@napi-rs/lzma` dependency — no external binaries. Fixes [issue #81](https://github.com/maugenst/zip-a-folder/issues/81) reported by [@vitaly-t](https://github.com/vitaly-t).
+- **`zip()`, `tar()` and `sevenZip()` now resolve with `{ count, size }`** — the number of regular files written to the archive and the archive's size in bytes — instead of `void`. The size is measured from the bytes actually written, so it is correct even when writing to a `customWriteStream` (where there is no target path to `stat`). Existing callers that ignore the return value are unaffected. Fixes [issue #80](https://github.com/maugenst/zip-a-folder/issues/80) requested by [@vitaly-t](https://github.com/vitaly-t).
+- **CLI summary reflects the real archive.** The `zip-a-folder` CLI now takes the compressed size and the written-file count straight from the archive result, so the completion summary reports exactly what was archived (honouring `--exclude` and glob matching) instead of re-walking the source.
+- **TAR keeps paths longer than 100 bytes.** The ustar `name` field holds only 100 bytes, so `tar()` silently truncated longer paths — and two files sharing their first 100 bytes (common under `node_modules`, e.g. `…/TextInputField.module.js` and `…/TextInputField.module.css`) collapsed to the same name, losing one on extraction. `NativeTar` now emits a PAX extended header carrying the full path before any over-length file or directory entry, which GNU tar, bsdtar, busybox, Python's `tarfile`, node-tar and 7-Zip all read. Via [PR #82](https://github.com/maugenst/zip-a-folder/pull/82) by [@jayhemnani9910](https://github.com/jayhemnani9910).
