@@ -105,9 +105,12 @@ describe('7z archive creation', () => {
 
     it('process exits after sevenZip completes (no hanging handles — issue #73)', async () => {
         const targetPath = path.join(testOutputDir, 'test-bun.7z');
-        await sevenZip(path.join(testDataDir, 'c'), targetPath);
+        const result = await sevenZip(path.join(testDataDir, 'c'), targetPath);
         const stat = await fs.promises.stat(targetPath);
         expect(stat.size).toBeGreaterThan(0);
+        // Issue #80: resolves with the file count and the archive byte size.
+        expect(result.count).toBeGreaterThan(0);
+        expect(result.size).toBe(stat.size);
         const fd = await fs.promises.open(targetPath, 'r');
         const buf = Buffer.alloc(6);
         await fd.read(buf, 0, 6, 0);

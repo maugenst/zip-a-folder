@@ -5,6 +5,7 @@ import * as zlib from 'zlib';
 import {Native7z} from './7z/Native7z';
 import {collectEntriesFromDirectory, collectGlobEntries} from './core/FileCollector';
 import {
+    ArchiveResult,
     COMPRESSION_LEVELS,
     FileEntry,
     SevenZipArchiveOptions,
@@ -12,11 +13,17 @@ import {
     TarArchiveOptions,
     ZipArchiveOptions
 } from './core/types';
-import {looksLikeGlob} from './core/utils';
+import {ByteCountingStream, looksLikeGlob} from './core/utils';
 import {NativeTar} from './tar/NativeTar';
 import {NativeZip} from './zip/NativeZip';
 
-export type {SevenZipArchiveOptions, TAR_COMPRESSION_TYPE, TarArchiveOptions, ZipArchiveOptions} from './core/types';
+export type {
+    ArchiveResult,
+    SevenZipArchiveOptions,
+    TAR_COMPRESSION_TYPE,
+    TarArchiveOptions,
+    ZipArchiveOptions
+} from './core/types';
 
 export const COMPRESSION_LEVEL = {
     uncompressed: 'uncompressed',
@@ -41,7 +48,11 @@ export class ZipAFolder {
      * @param targetFilePath Path to target zip file. May be empty/undefined if customWriteStream is provided.
      * @param options        ZIP options.
      */
-    public static async zip(source: string, targetFilePath?: string, options: ZipArchiveOptions = {}): Promise<void> {
+    public static async zip(
+        source: string,
+        targetFilePath?: string,
+        options: ZipArchiveOptions = {}
+    ): Promise<ArchiveResult> {
         const customWS = options.customWriteStream;
         const hasTargetPath = !!(targetFilePath && targetFilePath.length > 0);
 
@@ -146,7 +157,8 @@ export class ZipAFolder {
         }
 
         // Files.
-        for (const e of entries.filter((x) => !x.isDirectory)) {
+        const fileEntries = entries.filter((x) => !x.isDirectory);
+        for (const e of fileEntries) {
             await zipper.addFileFromFs(e.fsPath, e.relativePath, e.stat.mtime, e.stat.mode);
         }
 
@@ -156,9 +168,14 @@ export class ZipAFolder {
             await fs.promises.stat(parentDir); // will throw ENOENT if missing
         }
 
-        const outStream: NodeJS.WritableStream = customWS ?? fs.createWriteStream(targetFilePath as string);
+        const destination: NodeJS.WritableStream = customWS ?? fs.createWriteStream(targetFilePath as string);
+        const counter = new ByteCountingStream();
+        counter.pipe(destination);
 
-        await zipper.writeToStream(outStream);
+        await zipper.writeToStream(counter);
+        await ZipAFolder.awaitDrain(destination);
+
+        return {count: fileEntries.length, size: counter.bytesCounted};
     }
 
     /**
@@ -168,7 +185,11 @@ export class ZipAFolder {
      * @param targetFilePath Path to target tar/tgz file. May be empty/undefined if customWriteStream is provided.
      * @param options        TAR/gzip options.
      */
-    public static async tar(source: string, targetFilePath?: string, options: TarArchiveOptions = {}): Promise<void> {
+    public static async tar(
+        source: string,
+        targetFilePath?: string,
+        options: TarArchiveOptions = {}
+    ): Promise<ArchiveResult> {
         const customWS = options.customWriteStream;
         const hasTargetPath = !!(targetFilePath && targetFilePath.length > 0);
 
@@ -276,18 +297,23 @@ export class ZipAFolder {
         const finalOut: fs.WriteStream | NodeJS.WritableStream =
             customWS ?? fs.createWriteStream(targetFilePath as string);
 
+        // Count the final archive bytes just before they reach the destination,
+        // so the size is correct for plain, gzip and brotli output alike.
+        const counter = new ByteCountingStream();
+        counter.pipe(finalOut);
+
         let tarDestination: NodeJS.WritableStream;
 
         if (compressionType === 'gzip') {
             const gzipStream = zlib.createGzip(gzipOptions);
-            gzipStream.pipe(finalOut);
+            gzipStream.pipe(counter);
             tarDestination = gzipStream;
         } else if (compressionType === 'brotli') {
             const brotliStream = zlib.createBrotliCompress(brotliOptions);
-            brotliStream.pipe(finalOut);
+            brotliStream.pipe(counter);
             tarDestination = brotliStream;
         } else {
-            tarDestination = finalOut;
+            tarDestination = counter;
         }
 
         const tarWriter = new NativeTar(tarDestination);
@@ -297,17 +323,17 @@ export class ZipAFolder {
             await tarWriter.addDirectory(e);
         }
         // File entries.
-        for (const e of entries.filter((x) => !x.isDirectory)) {
+        const fileEntries = entries.filter((x) => !x.isDirectory);
+        for (const e of fileEntries) {
             await tarWriter.addFile(e);
         }
 
         await tarWriter.finalize();
 
-        // Ensure we flush + close output.
+        // Ensure we flush + close output. finalOut always finishes last because
+        // the counter pipes into it.
         await new Promise<void>((resolve, reject) => {
-            const finishTargetRaw = compressionType !== 'none' ? finalOut : tarDestination;
-            // Explicitly treat this as a NodeJS-style writable stream.
-            const finishTarget = finishTargetRaw as NodeJS.WritableStream;
+            const finishTarget = finalOut as NodeJS.WritableStream;
             /* v8 ignore next 4 */
             const onError = (err: Error) => {
                 cleanup();
@@ -325,9 +351,12 @@ export class ZipAFolder {
             finishTarget.once('error', onError);
             finishTarget.once('finish', onFinish);
 
-            // End the tarDestination (which will flush through gzip if enabled).
+            // End the tarDestination (which flushes through gzip/brotli and the
+            // counter into finalOut).
             (tarDestination as any).end?.();
         });
+
+        return {count: fileEntries.length, size: counter.bytesCounted};
     }
 
     /**
@@ -341,7 +370,7 @@ export class ZipAFolder {
         source: string,
         targetFilePath?: string,
         options: SevenZipArchiveOptions = {}
-    ): Promise<void> {
+    ): Promise<ArchiveResult> {
         const customWS = options.customWriteStream;
         const hasTargetPath = !!(targetFilePath && targetFilePath.length > 0);
 
@@ -402,7 +431,9 @@ export class ZipAFolder {
             await fs.promises.stat(parentDir); // may throw ENOENT
         }
 
-        const outStream: NodeJS.WritableStream = customWS ?? fs.createWriteStream(targetFilePath as string);
+        const destination: NodeJS.WritableStream = customWS ?? fs.createWriteStream(targetFilePath as string);
+        const counter = new ByteCountingStream();
+        counter.pipe(destination);
         const sevenZWriter = new Native7z(compressionLevel);
 
         // Add file entries (7z doesn't need explicit directory entries)
@@ -410,21 +441,56 @@ export class ZipAFolder {
             await sevenZWriter.addFile(e);
         }
 
-        await sevenZWriter.writeToStream(outStream);
+        await sevenZWriter.writeToStream(counter);
+        await ZipAFolder.awaitDrain(destination);
+
+        return {count: sevenZWriter.fileCount, size: counter.bytesCounted};
+    }
+
+    /**
+     * Resolve once a destination stream has fully flushed (finished or closed).
+     * `fs.createWriteStream` emits 'finish' after the counter's end propagates
+     * through the pipe; a user-supplied stream may only emit 'close'.
+     */
+    private static awaitDrain(stream: NodeJS.WritableStream): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            /* v8 ignore next 4 -- stream already drained before we attached listeners */
+            if ((stream as any).writableFinished) {
+                resolve();
+                return;
+            }
+            const cleanup = () => {
+                stream.removeListener('error', onError);
+                stream.removeListener('finish', onDone);
+                stream.removeListener('close', onDone);
+            };
+            const onDone = () => {
+                cleanup();
+                resolve();
+            };
+            /* v8 ignore next 4 */
+            const onError = (err: Error) => {
+                cleanup();
+                reject(err);
+            };
+            stream.once('finish', onDone);
+            stream.once('close', onDone);
+            stream.once('error', onError);
+        });
     }
 }
 
 /**
  * Convenience function: zip(...) directly.
  */
-export function zip(source: string, targetFilePath?: string, options?: ZipArchiveOptions): Promise<void> {
+export function zip(source: string, targetFilePath?: string, options?: ZipArchiveOptions): Promise<ArchiveResult> {
     return ZipAFolder.zip(source, targetFilePath, options ?? {});
 }
 
 /**
  * Convenience function: tar(...) directly.
  */
-export function tar(source: string, targetFilePath?: string, options?: TarArchiveOptions): Promise<void> {
+export function tar(source: string, targetFilePath?: string, options?: TarArchiveOptions): Promise<ArchiveResult> {
     return ZipAFolder.tar(source, targetFilePath, options ?? {});
 }
 
@@ -432,6 +498,10 @@ export function tar(source: string, targetFilePath?: string, options?: TarArchiv
  * Convenience function: sevenZip(...) directly.
  * Creates a 7z archive using LZMA compression.
  */
-export function sevenZip(source: string, targetFilePath?: string, options?: SevenZipArchiveOptions): Promise<void> {
+export function sevenZip(
+    source: string,
+    targetFilePath?: string,
+    options?: SevenZipArchiveOptions
+): Promise<ArchiveResult> {
     return ZipAFolder.sevenZip(source, targetFilePath, options ?? {});
 }

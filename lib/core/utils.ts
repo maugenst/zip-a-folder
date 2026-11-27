@@ -1,3 +1,5 @@
+import {PassThrough} from 'stream';
+
 /**
  * Precomputed CRC32 table for efficient checksum calculation.
  */
@@ -111,4 +113,21 @@ export function writeToStream(stream: NodeJS.WritableStream, data: Buffer): Prom
  */
 export function looksLikeGlob(source: string): boolean {
     return /[*?[\]{},]/.test(source);
+}
+
+/**
+ * A pass-through stream that counts the bytes flowing through it. Interposed
+ * between an archive writer and its final destination so the archive's output
+ * size can be reported even when writing to a user-supplied stream (where
+ * `fs.stat` on a target path is not available).
+ */
+export class ByteCountingStream extends PassThrough {
+    public bytesCounted = 0;
+
+    constructor() {
+        super();
+        this.on('data', (chunk: Buffer) => {
+            this.bytesCounted += chunk.length;
+        });
+    }
 }

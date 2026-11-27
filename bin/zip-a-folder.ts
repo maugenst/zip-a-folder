@@ -2,7 +2,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
 import {zip, tar, sevenZip} from '../lib/ZipAFolder.js';
-import type {ZipArchiveOptions, TarArchiveOptions, SevenZipArchiveOptions, COMPRESSION_LEVELS} from '../lib/core/types.js';
+import type {
+    ArchiveResult,
+    COMPRESSION_LEVELS,
+    SevenZipArchiveOptions,
+    TarArchiveOptions,
+    ZipArchiveOptions,
+} from '../lib/core/types.js';
 
 const VERSION = '6.0.1';
 
@@ -286,7 +292,7 @@ class ProgressReporter {
         }
     }
 
-    summary(sourceSize: number, targetSize: number): void {
+    summary(sourceSize: number, targetSize: number, archivedFiles: number): void {
         if (this.quiet) return;
 
         const duration = ((Date.now() - this.startTime) / 1000).toFixed(2);
@@ -305,8 +311,8 @@ class ProgressReporter {
         }
 
         console.log(`${colors.yellow}Time:${colors.reset}             ${duration}s`);
-        if (this.filesProcessed > 0) {
-            console.log(`${colors.yellow}Files:${colors.reset}            ${this.filesProcessed}`);
+        if (archivedFiles > 0) {
+            console.log(`${colors.yellow}Files:${colors.reset}            ${archivedFiles}`);
         }
         console.log();
     }
@@ -360,13 +366,15 @@ async function main(): Promise<void> {
             destPath: options.destPath,
         };
 
+        let result: ArchiveResult;
+
         switch (archiveType) {
             case 'zip': {
                 const zipOptions: ZipArchiveOptions = {
                     ...baseOptions,
                     zlib: options.compressionLevel ? {level: options.compressionLevel} : undefined,
                 };
-                await zip(source, target, zipOptions);
+                result = await zip(source, target, zipOptions);
                 break;
             }
             case 'tar': {
@@ -374,7 +382,7 @@ async function main(): Promise<void> {
                     ...baseOptions,
                     compressionType: 'none',
                 };
-                await tar(source, target, tarOptions);
+                result = await tar(source, target, tarOptions);
                 break;
             }
             case 'tgz': {
@@ -383,7 +391,7 @@ async function main(): Promise<void> {
                     compressionType: 'gzip',
                     gzipOptions: options.compressionLevel ? {level: options.compressionLevel} : undefined,
                 };
-                await tar(source, target, tgzOptions);
+                result = await tar(source, target, tgzOptions);
                 break;
             }
             case 'tar.br': {
@@ -398,7 +406,7 @@ async function main(): Promise<void> {
                           }
                         : undefined,
                 };
-                await tar(source, target, brOptions);
+                result = await tar(source, target, brOptions);
                 break;
             }
             case '7z': {
@@ -406,16 +414,17 @@ async function main(): Promise<void> {
                     ...baseOptions,
                     compressionLevel: options.compressionLevel,
                 };
-                await sevenZip(source, target, sevenZipOptions);
+                result = await sevenZip(source, target, sevenZipOptions);
                 break;
             }
         }
 
         progress.stop();
 
-        // Get the compressed file size
-        const targetStat = await fs.promises.stat(target);
-        progress.summary(sourceSize, targetStat.size);
+        // Use the archive result for the compressed size and file count, so the
+        // summary reflects exactly what was written (respecting exclude/glob
+        // rules) instead of re-walking the source.
+        progress.summary(sourceSize, result.size, result.count);
     } catch (error) {
         progress.error(error instanceof Error ? error.message : String(error));
         process.exit(1);

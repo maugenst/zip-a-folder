@@ -132,6 +132,16 @@ export type TarArchiveOptions = CoreOptions & {
 };
 
 /**
+ * Result returned by zip(), tar() and sevenZip() once the archive is written.
+ */
+export type ArchiveResult = {
+    /** Number of regular files written to the archive (directories excluded). */
+    count: number;
+    /** Size of the written archive in bytes. */
+    size: number;
+};
+
+/**
  * Internal representation of a filesystem entry used by ZIP/TAR builders.
  */
 export type FileEntry = {

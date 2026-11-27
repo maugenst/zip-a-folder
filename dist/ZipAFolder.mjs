@@ -1,8 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as zlib from "zlib";
-import { XzCompressor } from "@napi-rs/lzma";
+import { LzmaCompressor } from "@napi-rs/lzma";
 import { globSync } from "tinyglobby";
+import { PassThrough } from "stream";
 import { promisify } from "util";
 // lib/7z/Native7z.ts
 /**
@@ -26,6 +27,7 @@ const kPackInfo = 6;
 const kUnpackInfo = 7;
 const kSubStreamsInfo = 8;
 const kSize = 9;
+const kCRC = 10;
 const kFolder = 11;
 const kCodersUnpackSize = 12;
 const kNumUnpackStream = 13;
@@ -37,6 +39,10 @@ const LZMA_CODEC_ID = Buffer.from([
 	1,
 	1
 ]);
+const CODER_FLAG_ATTRIBUTES = 32;
+const LZMA_HEADER_LENGTH = 13;
+const FILE_ATTRIBUTE_DIRECTORY = 16;
+const FILE_ATTRIBUTE_ARCHIVE = 32;
 /**
 * CRC-32 calculation (same as used in ZIP)
 */
@@ -52,17 +58,28 @@ function crc32$1(data) {
 	return (crc ^ 4294967295) >>> 0;
 }
 /**
-* Simple 7z number encoding (used for headers)
+* 7z variable-length number encoding.
+*
+* The first byte's high bits form a unary mask: a run of `k` set high bits
+* means `k` little-endian extra bytes follow (the value's low bytes). When
+* fewer than 8 extra bytes are used, the first byte's remaining low bits hold
+* the value's high bits. Supports the full 64-bit range via BigInt arithmetic.
 */
-/* c8 ignore start - large number encoding only triggered with files >127 bytes compressed */
 function encode7zNumber(value) {
-	if (value < 128) return Buffer.from([value]);
-	const buf = Buffer.alloc(9);
-	buf[0] = 255;
-	buf.writeBigUInt64LE(BigInt(value), 1);
-	return buf;
+	const v = BigInt(value);
+	let k = 0;
+	while (k < 8 && v >= 1n << BigInt(7 * (k + 1))) k++;
+	const extra = [];
+	let tmp = v;
+	for (let i = 0; i < k; i++) {
+		extra.push(Number(tmp & 255n));
+		tmp >>= 8n;
+	}
+	let firstByte = 0;
+	for (let i = 0; i < k; i++) firstByte |= 128 >> i;
+	firstByte |= Number(v >> BigInt(8 * k));
+	return Buffer.from([firstByte, ...extra]);
 }
-/* c8 ignore stop */
 /**
 * Write Windows FILETIME (100-nanosecond intervals since 1601-01-01)
 */
@@ -72,6 +89,12 @@ function dateToFiletime(date) {
 }
 /**
 * Native 7z archive writer using @napi-rs/lzma for fast native LZMA compression.
+*
+* All file contents are compressed into a single solid LZMA stream held in one
+* 7z folder. The 7z LZMA coder expects a *raw* LZMA1 stream plus a 5-byte
+* property blob; `LzmaCompressor` emits a `.lzma` container whose 13-byte header
+* carries exactly those property bytes, so the header is split off and recorded
+* as the coder properties while the remaining raw stream becomes the pack data.
 */
 var Native7z = class {
 	/**
@@ -87,21 +110,31 @@ var Native7z = class {
 	async addFile(entry) {
 		if (entry.isDirectory) return;
 		const data = await fs.promises.readFile(entry.fsPath);
-		const compressedData = await this.compressLzma(data);
 		this.files.push({
 			entry,
 			data,
-			compressedData
+			crc: crc32$1(data)
 		});
 	}
 	/**
-	* Compress data using LZMA.
+	* Number of regular files added to the archive.
 	*/
-	async compressLzma(data) {
-		const compressor = new XzCompressor({ preset: this.compressionLevel });
+	get fileCount() {
+		return this.files.length;
+	}
+	/**
+	* Compress the concatenated file data into a single solid raw LZMA stream.
+	* Returns the 5-byte LZMA property blob and the raw stream (header stripped).
+	*/
+	async compressSolid(data) {
+		const compressor = new LzmaCompressor({ preset: this.compressionLevel });
 		const head = compressor.update(data);
 		const tail = await compressor.finish();
-		return Buffer.concat([head, tail]);
+		const lzma = Buffer.concat([head, tail]);
+		return {
+			props: Buffer.from(lzma.subarray(0, 5)),
+			stream: Buffer.from(lzma.subarray(LZMA_HEADER_LENGTH))
+		};
 	}
 	/**
 	* Finalize and write the archive to a stream.
@@ -124,12 +157,12 @@ var Native7z = class {
 	* Build the complete 7z archive.
 	*/
 	async buildArchive() {
-		const packedData = Buffer.concat(this.files.map((f) => f.compressedData));
-		const header = this.buildHeader();
-		const compressedHeader = await this.compressLzma(header);
-		const nextHeaderOffset = BigInt(packedData.length);
-		const nextHeaderSize = BigInt(compressedHeader.length);
-		const nextHeaderCRC = crc32$1(compressedHeader);
+		const uncompressed = Buffer.concat(this.files.map((f) => f.data));
+		const { props, stream } = await this.compressSolid(uncompressed);
+		const header = this.buildHeader(props, stream.length, uncompressed.length);
+		const nextHeaderOffset = BigInt(stream.length);
+		const nextHeaderSize = BigInt(header.length);
+		const nextHeaderCRC = crc32$1(header);
 		const startHeader = Buffer.alloc(20);
 		startHeader.writeBigUInt64LE(nextHeaderOffset, 0);
 		startHeader.writeBigUInt64LE(nextHeaderSize, 8);
@@ -143,74 +176,88 @@ var Native7z = class {
 		startHeader.copy(signatureHeader, 12);
 		return Buffer.concat([
 			signatureHeader,
-			packedData,
-			compressedHeader
+			stream,
+			header
 		]);
 	}
 	/**
 	* Build the 7z header with file metadata.
 	*/
-	buildHeader() {
-		const parts = [];
-		parts.push(Buffer.from([kHeader]));
-		parts.push(this.buildMainStreamsInfo());
-		parts.push(this.buildFilesInfo());
-		parts.push(Buffer.from([kEnd]));
-		return Buffer.concat(parts);
+	buildHeader(props, packedSize, unpackedSize) {
+		return Buffer.concat([
+			Buffer.from([kHeader]),
+			this.buildMainStreamsInfo(props, packedSize, unpackedSize),
+			this.buildFilesInfo(),
+			Buffer.from([kEnd])
+		]);
 	}
 	/**
-	* Build MainStreamsInfo section.
+	* Build MainStreamsInfo section for the single solid folder.
 	*/
-	buildMainStreamsInfo() {
-		const parts = [];
-		parts.push(Buffer.from([kMainStreamsInfo]));
-		parts.push(this.buildPackInfo());
-		parts.push(this.buildUnpackInfo());
-		parts.push(this.buildSubStreamsInfo());
-		parts.push(Buffer.from([kEnd]));
-		return Buffer.concat(parts);
+	buildMainStreamsInfo(props, packedSize, unpackedSize) {
+		return Buffer.concat([
+			Buffer.from([kMainStreamsInfo]),
+			this.buildPackInfo(packedSize),
+			this.buildUnpackInfo(props, unpackedSize),
+			this.buildSubStreamsInfo(),
+			Buffer.from([kEnd])
+		]);
 	}
 	/**
-	* Build PackInfo section (packed/compressed sizes).
+	* Build PackInfo section: one packed stream of `packedSize` bytes at offset 0.
 	*/
-	buildPackInfo() {
-		const parts = [];
-		parts.push(Buffer.from([kPackInfo]));
-		parts.push(encode7zNumber(0));
-		parts.push(encode7zNumber(this.files.length));
-		parts.push(Buffer.from([kSize]));
-		for (const file of this.files) parts.push(encode7zNumber(file.compressedData.length));
-		parts.push(Buffer.from([kEnd]));
-		return Buffer.concat(parts);
+	buildPackInfo(packedSize) {
+		return Buffer.concat([
+			Buffer.from([kPackInfo]),
+			encode7zNumber(0),
+			encode7zNumber(1),
+			Buffer.from([kSize]),
+			encode7zNumber(packedSize),
+			Buffer.from([kEnd])
+		]);
 	}
 	/**
-	* Build UnpackInfo section (codec and uncompressed sizes).
+	* Build UnpackInfo section: one folder, one LZMA coder with properties.
 	*/
-	buildUnpackInfo() {
-		const parts = [];
-		parts.push(Buffer.from([kUnpackInfo]));
-		parts.push(Buffer.from([kFolder]));
-		parts.push(encode7zNumber(this.files.length));
-		parts.push(Buffer.from([0]));
-		for (const _file of this.files) {
-			parts.push(Buffer.from([1]));
-			const coderFlags = LZMA_CODEC_ID.length;
-			parts.push(Buffer.from([coderFlags]));
-			parts.push(LZMA_CODEC_ID);
-		}
-		parts.push(Buffer.from([kCodersUnpackSize]));
-		for (const file of this.files) parts.push(encode7zNumber(file.data.length));
-		parts.push(Buffer.from([kEnd]));
-		return Buffer.concat(parts);
+	buildUnpackInfo(props, unpackedSize) {
+		const coderFlags = LZMA_CODEC_ID.length | CODER_FLAG_ATTRIBUTES;
+		const coder = Buffer.concat([
+			Buffer.from([coderFlags]),
+			LZMA_CODEC_ID,
+			encode7zNumber(props.length),
+			props
+		]);
+		return Buffer.concat([
+			Buffer.from([kUnpackInfo]),
+			Buffer.from([kFolder]),
+			encode7zNumber(1),
+			Buffer.from([0]),
+			encode7zNumber(1),
+			coder,
+			Buffer.from([kCodersUnpackSize]),
+			encode7zNumber(unpackedSize),
+			Buffer.from([kEnd])
+		]);
 	}
 	/**
-	* Build SubStreamsInfo section.
+	* Build SubStreamsInfo section: the single folder holds one substream per
+	* file, each with its own size and CRC.
 	*/
 	buildSubStreamsInfo() {
-		const parts = [];
-		parts.push(Buffer.from([kSubStreamsInfo]));
+		const parts = [Buffer.from([kSubStreamsInfo])];
 		parts.push(Buffer.from([kNumUnpackStream]));
-		for (let i = 0; i < this.files.length; i++) parts.push(encode7zNumber(1));
+		parts.push(encode7zNumber(this.files.length));
+		if (this.files.length > 1) {
+			parts.push(Buffer.from([kSize]));
+			for (let i = 0; i < this.files.length - 1; i++) parts.push(encode7zNumber(this.files[i].data.length));
+		}
+		parts.push(Buffer.from([kCRC]));
+		parts.push(Buffer.from([1]));
+		for (const file of this.files) {
+			const buf = Buffer.alloc(4);
+			buf.writeUInt32LE(file.crc);
+			parts.push(buf);
+		}
 		parts.push(Buffer.from([kEnd]));
 		return Buffer.concat(parts);
 	}
@@ -218,40 +265,38 @@ var Native7z = class {
 	* Build FilesInfo section (file names, attributes, times).
 	*/
 	buildFilesInfo() {
-		const parts = [];
-		parts.push(Buffer.from([kFilesInfo]));
-		parts.push(encode7zNumber(this.files.length));
-		parts.push(this.buildFileNames());
-		parts.push(this.buildMTimes());
-		parts.push(this.buildAttributes());
-		parts.push(Buffer.from([kEnd]));
-		return Buffer.concat(parts);
+		return Buffer.concat([
+			Buffer.from([kFilesInfo]),
+			encode7zNumber(this.files.length),
+			this.buildFileNames(),
+			this.buildMTimes(),
+			this.buildAttributes(),
+			Buffer.from([kEnd])
+		]);
 	}
 	/**
 	* Build file names section (UTF-16LE encoded).
 	*/
 	buildFileNames() {
-		const parts = [];
-		parts.push(Buffer.from([kNames]));
 		const namesData = [];
 		for (const file of this.files) {
-			const name = file.entry.relativePath.replace(/\//g, "\\");
-			const nameBuffer = Buffer.from(name, "utf16le");
-			namesData.push(nameBuffer);
+			const name = file.entry.relativePath.replace(/\\/g, "/");
+			namesData.push(Buffer.from(name, "utf16le"));
 			namesData.push(Buffer.from([0, 0]));
 		}
 		const allNames = Buffer.concat(namesData);
-		parts.push(encode7zNumber(allNames.length + 1));
-		parts.push(Buffer.from([0]));
-		parts.push(allNames);
-		return Buffer.concat(parts);
+		return Buffer.concat([
+			Buffer.from([kNames]),
+			encode7zNumber(allNames.length + 1),
+			Buffer.from([0]),
+			allNames
+		]);
 	}
 	/**
 	* Build modification times section.
 	*/
 	buildMTimes() {
-		const parts = [];
-		parts.push(Buffer.from([kMTime]));
+		const parts = [Buffer.from([kMTime])];
 		const dataSize = 2 + 8 * this.files.length;
 		parts.push(encode7zNumber(dataSize));
 		parts.push(Buffer.from([1]));
@@ -267,8 +312,7 @@ var Native7z = class {
 	* Build Windows attributes section.
 	*/
 	buildAttributes() {
-		const parts = [];
-		parts.push(Buffer.from([kAttributes]));
+		const parts = [Buffer.from([kAttributes])];
 		const dataSize = 2 + 4 * this.files.length;
 		parts.push(encode7zNumber(dataSize));
 		parts.push(Buffer.from([1]));
@@ -276,7 +320,7 @@ var Native7z = class {
 		for (const file of this.files) {
 			const buf = Buffer.alloc(4);
 			/* c8 ignore next */
-			const attr = file.entry.isDirectory ? 16 : 32;
+			const attr = file.entry.isDirectory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_ARCHIVE;
 			buf.writeUInt32LE(attr);
 			parts.push(buf);
 		}
@@ -497,6 +541,21 @@ function writeToStream(stream, data) {
 function looksLikeGlob(source) {
 	return /[*?[\]{},]/.test(source);
 }
+/**
+* A pass-through stream that counts the bytes flowing through it. Interposed
+* between an archive writer and its final destination so the archive's output
+* size can be reported even when writing to a user-supplied stream (where
+* `fs.stat` on a target path is not available).
+*/
+var ByteCountingStream = class extends PassThrough {
+	constructor() {
+		super();
+		this.bytesCounted = 0;
+		this.on("data", (chunk) => {
+			this.bytesCounted += chunk.length;
+		});
+	}
+};
 // lib/tar/NativeTar.ts
 /**
 * Create a 512-byte TAR header block for a file or directory.
@@ -898,7 +957,7 @@ const COMPRESSION_LEVEL = {
 *  - zip(...)
 *  - tar(...)
 */
-var ZipAFolder = class {
+var ZipAFolder = class ZipAFolder {
 	/**
 	* Create a ZIP archive from a directory or glob.
 	*
@@ -960,13 +1019,21 @@ var ZipAFolder = class {
 			};
 		});
 		for (const e of entries.filter((x) => x.isDirectory)) zipper.addDirectoryEntry(e.relativePath, e.stat.mtime, e.stat.mode);
-		for (const e of entries.filter((x) => !x.isDirectory)) await zipper.addFileFromFs(e.fsPath, e.relativePath, e.stat.mtime, e.stat.mode);
+		const fileEntries = entries.filter((x) => !x.isDirectory);
+		for (const e of fileEntries) await zipper.addFileFromFs(e.fsPath, e.relativePath, e.stat.mtime, e.stat.mode);
 		if (!customWS && hasTargetPath) {
 			const parentDir = path.dirname(path.resolve(targetFilePath));
 			await fs.promises.stat(parentDir);
 		}
-		const outStream = customWS ?? fs.createWriteStream(targetFilePath);
-		await zipper.writeToStream(outStream);
+		const destination = customWS ?? fs.createWriteStream(targetFilePath);
+		const counter = new ByteCountingStream();
+		counter.pipe(destination);
+		await zipper.writeToStream(counter);
+		await ZipAFolder.awaitDrain(destination);
+		return {
+			count: fileEntries.length,
+			size: counter.bytesCounted
+		};
 	}
 	/**
 	* Create a TAR (optionally gzipped) archive from a directory or glob.
@@ -1023,22 +1090,25 @@ var ZipAFolder = class {
 			await fs.promises.stat(parentDir);
 		}
 		const finalOut = customWS ?? fs.createWriteStream(targetFilePath);
+		const counter = new ByteCountingStream();
+		counter.pipe(finalOut);
 		let tarDestination;
 		if (compressionType === "gzip") {
 			const gzipStream = zlib.createGzip(gzipOptions);
-			gzipStream.pipe(finalOut);
+			gzipStream.pipe(counter);
 			tarDestination = gzipStream;
 		} else if (compressionType === "brotli") {
 			const brotliStream = zlib.createBrotliCompress(brotliOptions);
-			brotliStream.pipe(finalOut);
+			brotliStream.pipe(counter);
 			tarDestination = brotliStream;
-		} else tarDestination = finalOut;
+		} else tarDestination = counter;
 		const tarWriter = new NativeTar(tarDestination);
 		for (const e of entries.filter((x) => x.isDirectory)) await tarWriter.addDirectory(e);
-		for (const e of entries.filter((x) => !x.isDirectory)) await tarWriter.addFile(e);
+		const fileEntries = entries.filter((x) => !x.isDirectory);
+		for (const e of fileEntries) await tarWriter.addFile(e);
 		await tarWriter.finalize();
 		await new Promise((resolve, reject) => {
-			const finishTarget = compressionType !== "none" ? finalOut : tarDestination;
+			const finishTarget = finalOut;
 			/* v8 ignore next 4 */
 			const onError = (err) => {
 				cleanup();
@@ -1056,6 +1126,10 @@ var ZipAFolder = class {
 			finishTarget.once("finish", onFinish);
 			tarDestination.end?.();
 		});
+		return {
+			count: fileEntries.length,
+			size: counter.bytesCounted
+		};
 	}
 	/**
 	* Create a 7z archive from a directory or glob using LZMA compression.
@@ -1100,10 +1174,48 @@ var ZipAFolder = class {
 			const parentDir = path.dirname(path.resolve(targetFilePath));
 			await fs.promises.stat(parentDir);
 		}
-		const outStream = customWS ?? fs.createWriteStream(targetFilePath);
+		const destination = customWS ?? fs.createWriteStream(targetFilePath);
+		const counter = new ByteCountingStream();
+		counter.pipe(destination);
 		const sevenZWriter = new Native7z(compressionLevel);
 		for (const e of entries) await sevenZWriter.addFile(e);
-		await sevenZWriter.writeToStream(outStream);
+		await sevenZWriter.writeToStream(counter);
+		await ZipAFolder.awaitDrain(destination);
+		return {
+			count: sevenZWriter.fileCount,
+			size: counter.bytesCounted
+		};
+	}
+	/**
+	* Resolve once a destination stream has fully flushed (finished or closed).
+	* `fs.createWriteStream` emits 'finish' after the counter's end propagates
+	* through the pipe; a user-supplied stream may only emit 'close'.
+	*/
+	static awaitDrain(stream) {
+		return new Promise((resolve, reject) => {
+			/* v8 ignore next 4 -- stream already drained before we attached listeners */
+			if (stream.writableFinished) {
+				resolve();
+				return;
+			}
+			const cleanup = () => {
+				stream.removeListener("error", onError);
+				stream.removeListener("finish", onDone);
+				stream.removeListener("close", onDone);
+			};
+			const onDone = () => {
+				cleanup();
+				resolve();
+			};
+			/* v8 ignore next 4 */
+			const onError = (err) => {
+				cleanup();
+				reject(err);
+			};
+			stream.once("finish", onDone);
+			stream.once("close", onDone);
+			stream.once("error", onError);
+		});
 	}
 };
 /**

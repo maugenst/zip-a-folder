@@ -103,12 +103,18 @@ A major rewrite using:
 - **ZIP entry-name hardening:** Archive entry names containing `..` path segments (e.g. produced by a `destPath: '../../poc'` option) now throw an error at the point the entry is added, preventing Zip-Slip on extraction by tools that don't sanitize entry names.
 - **ZIP length validation:** Passing a comment or entry name whose UTF-8 byte length exceeds 65535 (the ZIP format's 16-bit limit) now throws a descriptive error instead of an uncaught `RangeError` that crashed the calling process.
 
-### Version 7.1 (current)
+### Version 7.1
 
 - **UTF-8 ZIP filenames:** ZIP entries whose names contain non-ASCII characters (e.g. `Zoë.txt`, `café/`) now set the language-encoding flag (general-purpose bit 11, `0x0800`) in both the local file header and the central directory. Readers such as Python's `zipfile` now decode accented names correctly instead of mojibake like `Zo├½.txt`. Pure-ASCII names are unaffected. Fixes [issue #75](https://github.com/maugenst/zip-a-folder/issues/75) reported by [@DocBouCou](https://github.com/DocBouCou).
 - **Non-blocking ZIP compression:** `NativeZip` now compresses file data with the asynchronous `zlib.deflateRaw` (running on Node's threadpool) instead of the synchronous `deflateRawSync`, so zipping no longer blocks the event loop. The public Promise-based API is unchanged. Fixes [issue #76](https://github.com/maugenst/zip-a-folder/issues/76) reported by [@DocBouCou](https://github.com/DocBouCou).
 - **Security fix (symlink escape — all formats):** A symlink inside the source tree could smuggle files from outside it into an archive, bypassing the v7.0.1 cwd-escape guard. In directory mode a symlinked directory was walked (archiving its target's files under the link name, e.g. `linkdir/key.txt`); in glob mode a symlinked file (`linkfile.txt`) or files reached through a symlinked directory were followed via `fs.stat`. Both collectors now pass `followSymbolicLinks: false` to the glob and additionally reject symlinks with `lstat`, so only files genuinely inside the source tree are archived. This also covers `tar()` and `sevenZip()`, which use the same collectors. Found with automated differential testing by the [UCSB PLSE group](https://ucsbplse.github.io/) and reported via coordinated disclosure.
 - **ZIP timestamps now default to local time:** ZIP stores file times in DOS date/time fields, which carry no timezone and are read as **local time** by virtually every tool (`unzip`, Python `zipfile`, 7-Zip, Windows). Previously `NativeZip` wrote UTC unless `forceLocalTime: true` was passed, so outside UTC extracted mtimes were off by the UTC offset. Local time is now the default; pass `forceLocalTime: false` to keep the old UTC behaviour. Fixes [issue #61](https://github.com/maugenst/zip-a-folder/issues/61) via [PR #77](https://github.com/maugenst/zip-a-folder/pull/77) by [@jayhemnani9910](https://github.com/jayhemnani9910).
+
+### Version 7.2.1 (current)
+
+- **7z archives are no longer corrupt.** The native 7z writer produced files that every 7-Zip reader rejected with `Headers Error`. Three faults combined: the packed data was an XZ-container stream placed behind an LZMA1 coder, the coder carried no LZMA property bytes, and the 7z variable-length integer encoder was wrong for any value ≥ 128 (so any archive larger than ~127 bytes broke). The writer now emits a single **solid raw-LZMA stream** with the correct 5-byte coder properties and a corrected number encoder, stores paths with forward slashes, and records a per-file CRC. Archives now open and extract in 7-Zip / p7zip, and the solid layout compresses noticeably better than before. Compression still runs purely through the native `@napi-rs/lzma` dependency — no external binaries. Fixes [issue #81](https://github.com/maugenst/zip-a-folder/issues/81) reported by [@vitaly-t](https://github.com/vitaly-t).
+- **`zip()`, `tar()` and `sevenZip()` now resolve with `{ count, size }`** — the number of regular files written to the archive and the archive's size in bytes — instead of `void`. The size is measured from the bytes actually written, so it is correct even when writing to a `customWriteStream` (where there is no target path to `stat`). Existing callers that ignore the return value are unaffected. Fixes [issue #80](https://github.com/maugenst/zip-a-folder/issues/80) requested by [@vitaly-t](https://github.com/vitaly-t).
+- **CLI summary reflects the real archive.** The `zip-a-folder` CLI now takes the compressed size and the written-file count straight from the archive result, so the completion summary reports exactly what was archived (honouring `--exclude` and glob matching) instead of re-walking the source.
 
 ---
 
@@ -139,6 +145,28 @@ import { tar } from 'zip-a-folder';
 
 await tar('/path/to/folder', '/path/to/archive.tgz');
 ```
+
+### Return value
+
+`zip()`, `tar()` and `sevenZip()` resolve with an `ArchiveResult`:
+
+```ts
+type ArchiveResult = {
+    count: number; // number of regular files written (directories excluded)
+    size: number;  // size of the written archive, in bytes
+};
+```
+
+```js
+import { zip } from 'zip-a-folder';
+
+const { count, size } = await zip('/path/to/folder', '/path/to/archive.zip');
+console.log(`archived ${count} files into ${size} bytes`);
+```
+
+`size` is measured from the bytes actually written, so it is reported even when
+you pass a `customWriteStream` and there is no target path to `stat`. Callers
+that ignore the returned value keep working unchanged.
 
 ---
 
@@ -313,7 +341,8 @@ await sevenZip('/project', '/archive.7z', {
 > **Note:** 7z archives use native LZMA compression via `@napi-rs/lzma`. Pre-built binaries are automatically
 > selected at install time for your platform — no compiler required. A WASM fallback is used on unsupported
 > platforms. The 7z format stores files as a solid archive, meaning all file data is concatenated and compressed
-> together for better compression efficiency.
+> together for better compression efficiency. Each entry carries its own CRC-32, and archives open and extract in
+> 7-Zip, p7zip and other standard 7z readers.
 
 ---
 
