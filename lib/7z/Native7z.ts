@@ -1,4 +1,5 @@
 // lib/7z/Native7z.ts
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import {LzmaCompressor} from '@napi-rs/lzma';
 import type {FileEntry} from '../core/types';
@@ -30,8 +31,18 @@ const kAttributes = 0x15;
 // LZMA (LZMA1) codec ID
 const LZMA_CODEC_ID = Buffer.from([0x03, 0x01, 0x01]);
 
+// 7zAES (AES-256-CBC + SHA-256 key derivation) codec ID.
+const AES_CODEC_ID = Buffer.from([0x06, 0xf1, 0x07, 0x01]);
+
 // Coder flag: the codec carries attributes (property bytes) in the header.
 const CODER_FLAG_ATTRIBUTES = 0x20;
+
+// AES block / IV size, and the SHA-256 key-derivation iteration exponent 7-Zip
+// uses by default (2^19 rounds). Also the flag bit marking the IV present in
+// the AES coder property byte.
+const AES_BLOCK_SIZE = 16;
+const AES_NUM_CYCLES_POWER = 19;
+const AES_PROP_IV_PRESENT = 0x40;
 
 // Length of the `.lzma` container header produced by LzmaCompressor:
 // 1 props byte + 4 dictionary-size bytes + 8 uncompressed-size bytes.
@@ -108,6 +119,34 @@ function dateToFiletime(date: Date): bigint {
     return ms * BigInt(10000); // Convert to 100-nanosecond intervals
 }
 
+/**
+ * 7z's AES key-derivation function (as implemented by 7-Zip's `CKeyInfo`):
+ * a single running SHA-256 fed `salt ++ passwordUTF16LE ++ counter` for
+ * 2^numCyclesPower rounds, with an 8-byte little-endian counter incremented
+ * each round. The 32-byte digest is the AES-256 key.
+ */
+function deriveAesKey(password: string, salt: Buffer, numCyclesPower: number): Buffer {
+    const passwordBytes = Buffer.from(password, 'utf16le');
+    const rounds = 1n << BigInt(numCyclesPower);
+    const hash = crypto.createHash('sha256');
+    const counter = Buffer.alloc(8, 0);
+
+    for (let i = 0n; i < rounds; i++) {
+        hash.update(salt);
+        hash.update(passwordBytes);
+        hash.update(counter);
+        // Increment the 8-byte little-endian counter.
+        for (let b = 0; b < 8; b++) {
+            counter[b] = (counter[b] + 1) & 0xff;
+            if (counter[b] !== 0) {
+                break;
+            }
+        }
+    }
+
+    return hash.digest();
+}
+
 interface FileData {
     entry: FileEntry;
     data: Buffer;
@@ -126,12 +165,16 @@ interface FileData {
 export class Native7z {
     private files: FileData[] = [];
     private compressionLevel: number;
+    private password?: string;
 
     /**
      * @param compressionLevel LZMA compression level 1-9 (default: 5)
+     * @param password         Optional password; when set, the data is encrypted
+     *                         with AES-256 (the `7zAES` coder).
      */
-    constructor(compressionLevel = 5) {
+    constructor(compressionLevel = 5, password?: string) {
         this.compressionLevel = Math.max(1, Math.min(9, compressionLevel));
+        this.password = password && password.length > 0 ? password : undefined;
     }
 
     /**
@@ -212,11 +255,16 @@ export class Native7z {
         const uncompressed = Buffer.concat(this.files.map((f) => f.data));
         const {props, stream} = await this.compressSolid(uncompressed);
 
-        // Build the header describing the single packed stream.
-        const header = this.buildHeader(props, stream.length, uncompressed.length);
+        // Optionally wrap the LZMA stream in an AES-256 layer. `packed` is what
+        // lands in the archive; `lzmaSize` is the LZMA coder's output (the
+        // original solid length) and `streamSize` the LZMA coder's *input* (the
+        // raw LZMA stream length, unpadded) which the AES coder decodes to.
+        const {packed, aes} = this.maybeEncrypt(stream);
+
+        const header = this.buildHeader(props, packed.length, stream.length, uncompressed.length, aes);
 
         // Build start header
-        const nextHeaderOffset = BigInt(stream.length);
+        const nextHeaderOffset = BigInt(packed.length);
         const nextHeaderSize = BigInt(header.length);
         const nextHeaderCRC = crc32(header);
 
@@ -237,16 +285,53 @@ export class Native7z {
 
         // The 7z header is stored uncompressed (kHeader, not kEncodedHeader),
         // which every reader supports.
-        return Buffer.concat([signatureHeader, stream, header]);
+        return Buffer.concat([signatureHeader, packed, header]);
+    }
+
+    /**
+     * When a password is set, encrypt the LZMA stream with AES-256-CBC after
+     * zero-padding it to a 16-byte boundary, and return the ciphertext plus the
+     * coder's property blob. Otherwise return the stream unchanged.
+     */
+    private maybeEncrypt(stream: Buffer): {packed: Buffer; aes?: {props: Buffer}} {
+        if (!this.password) {
+            return {packed: stream};
+        }
+
+        // 7-Zip's own archives use an IV only (no salt); match that.
+        const iv = crypto.randomBytes(AES_BLOCK_SIZE);
+        const key = deriveAesKey(this.password, Buffer.alloc(0), AES_NUM_CYCLES_POWER);
+
+        const padLength = (AES_BLOCK_SIZE - (stream.length % AES_BLOCK_SIZE)) % AES_BLOCK_SIZE;
+        const padded = Buffer.concat([stream, Buffer.alloc(padLength, 0)]);
+
+        const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+        cipher.setAutoPadding(false);
+        const packed = Buffer.concat([cipher.update(padded), cipher.final()]);
+
+        // AES coder properties: a flags byte (numCyclesPower + IV-present bit),
+        // then a nibble-packed size byte, then the IV. No salt -> salt bit clear
+        // and the high nibble is 0.
+        const flags = AES_NUM_CYCLES_POWER | AES_PROP_IV_PRESENT;
+        const sizes = (iv.length - 1) & 0x0f;
+        const props = Buffer.concat([Buffer.from([flags, sizes]), iv]);
+
+        return {packed, aes: {props}};
     }
 
     /**
      * Build the 7z header with file metadata.
      */
-    private buildHeader(props: Buffer, packedSize: number, unpackedSize: number): Buffer {
+    private buildHeader(
+        lzmaProps: Buffer,
+        packedSize: number,
+        lzmaStreamSize: number,
+        unpackedSize: number,
+        aes?: {props: Buffer}
+    ): Buffer {
         return Buffer.concat([
             Buffer.from([kHeader]),
-            this.buildMainStreamsInfo(props, packedSize, unpackedSize),
+            this.buildMainStreamsInfo(lzmaProps, packedSize, lzmaStreamSize, unpackedSize, aes),
             this.buildFilesInfo(),
             Buffer.from([kEnd])
         ]);
@@ -255,11 +340,17 @@ export class Native7z {
     /**
      * Build MainStreamsInfo section for the single solid folder.
      */
-    private buildMainStreamsInfo(props: Buffer, packedSize: number, unpackedSize: number): Buffer {
+    private buildMainStreamsInfo(
+        lzmaProps: Buffer,
+        packedSize: number,
+        lzmaStreamSize: number,
+        unpackedSize: number,
+        aes?: {props: Buffer}
+    ): Buffer {
         return Buffer.concat([
             Buffer.from([kMainStreamsInfo]),
             this.buildPackInfo(packedSize),
-            this.buildUnpackInfo(props, unpackedSize),
+            this.buildUnpackInfo(lzmaProps, lzmaStreamSize, unpackedSize, aes),
             this.buildSubStreamsInfo(),
             Buffer.from([kEnd])
         ]);
@@ -280,23 +371,67 @@ export class Native7z {
     }
 
     /**
-     * Build UnpackInfo section: one folder, one LZMA coder with properties.
+     * Build a single coder record: flags byte (id size | attributes), id, and
+     * the property length + bytes.
      */
-    private buildUnpackInfo(props: Buffer, unpackedSize: number): Buffer {
-        // Coder: flags byte = codec-id size | attributes-present, then the id,
-        // then the property length and bytes.
-        const coderFlags = LZMA_CODEC_ID.length | CODER_FLAG_ATTRIBUTES;
-        const coder = Buffer.concat([Buffer.from([coderFlags]), LZMA_CODEC_ID, encode7zNumber(props.length), props]);
+    private buildCoder(id: Buffer, props: Buffer): Buffer {
+        return Buffer.concat([
+            Buffer.from([id.length | CODER_FLAG_ATTRIBUTES]),
+            id,
+            encode7zNumber(props.length),
+            props
+        ]);
+    }
+
+    /**
+     * Build UnpackInfo section: one folder.
+     *
+     * Without a password the folder has a single LZMA coder. With a password it
+     * has two coders wired as `pack -> AES(decrypt) -> LZMA(decompress) -> out`,
+     * matching 7-Zip's own layout: coder0 = AES, coder1 = LZMA, bound by the
+     * pair (LZMA input <- AES output). The coder unpack sizes are listed per
+     * out-stream in coder order: AES output = the (unpadded) LZMA stream size,
+     * LZMA output = the original solid size.
+     */
+    private buildUnpackInfo(
+        lzmaProps: Buffer,
+        lzmaStreamSize: number,
+        unpackedSize: number,
+        aes?: {props: Buffer}
+    ): Buffer {
+        const lzmaCoder = this.buildCoder(LZMA_CODEC_ID, lzmaProps);
+
+        let folder: Buffer;
+        let coderUnpackSizes: Buffer;
+
+        if (aes) {
+            const aesCoder = this.buildCoder(AES_CODEC_ID, aes.props);
+            folder = Buffer.concat([
+                encode7zNumber(2), // number of coders
+                aesCoder, // coder 0 (in 0, out 0)
+                lzmaCoder, // coder 1 (in 1, out 1)
+                // bind pair: LZMA input (in-stream 1) <- AES output (out-stream 0).
+                encode7zNumber(1),
+                encode7zNumber(0)
+            ]);
+            // Out-stream order: AES output then LZMA output.
+            coderUnpackSizes = Buffer.concat([encode7zNumber(lzmaStreamSize), encode7zNumber(unpackedSize)]);
+        } else {
+            folder = Buffer.concat([
+                encode7zNumber(1), // number of coders
+                lzmaCoder
+            ]);
+            coderUnpackSizes = encode7zNumber(unpackedSize);
+        }
 
         return Buffer.concat([
             Buffer.from([kUnpackInfo]),
             Buffer.from([kFolder]),
             encode7zNumber(1), // number of folders
             Buffer.from([0]), // external = 0 (folders stored inline)
-            encode7zNumber(1), // number of coders in the folder
-            coder,
+            folder,
             Buffer.from([kCodersUnpackSize]),
-            encode7zNumber(unpackedSize),
+            coderUnpackSizes,
             Buffer.from([kEnd])
         ]);
     }

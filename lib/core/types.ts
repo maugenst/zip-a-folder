@@ -35,6 +35,19 @@ export type CoreOptions = {
      * Only applied for directory sources (not globs – for globs use negative patterns instead).
      */
     exclude?: string[];
+
+    /**
+     * Called with the archiving progress as an integer percent (0–100) as files
+     * are processed into the archive. The value is monotonic (never decreases)
+     * and 100 is always emitted once at the end.
+     *
+     * Progress is based on input bytes read. For ZIP and TAR this tracks the
+     * actual per-file compression closely. For 7z the percentage reflects the
+     * file-reading phase only — all data is then compressed in a single native
+     * LZMA step that cannot be subdivided, so progress approaches 100 as the
+     * last file is read and the final 100 is emitted once that step completes.
+     */
+    onProgress?: (percent: number) => void;
 };
 
 /**
@@ -77,6 +90,25 @@ export type ZipArchiveOptions = CoreOptions & {
      *  - medium/high  => DEFLATE with suitable zlib level
      */
     compression?: COMPRESSION_LEVELS;
+
+    /**
+     * Encrypt file contents, protected by this password. Filenames and metadata
+     * stay readable. Omit (or leave empty) for no encryption. The scheme is
+     * chosen by `encryptionMethod` (default WinZip AES-256).
+     */
+    password?: string;
+
+    /**
+     * ZIP encryption scheme, used only when `password` is set.
+     *
+     * - `'aes256'` (default): WinZip AES-256 (AE-2). Strong; read by 7-Zip,
+     *   WinZip, p7zip and macOS `bsdtar`.
+     * - `'zipcrypto'`: legacy PKWARE "ZipCrypto". **Cryptographically broken**
+     *   (practical known-plaintext attack) — only choose it when you must open
+     *   the archive with a legacy reader such as the `unzip` bundled with macOS
+     *   or Windows Explorer. Do not rely on it for confidentiality.
+     */
+    encryptionMethod?: 'aes256' | 'zipcrypto';
 };
 
 /**
@@ -178,4 +210,12 @@ export type SevenZipArchiveOptions = CoreOptions & {
      * - 'high': LZMA level 9
      */
     compression?: COMPRESSION_LEVELS;
+
+    /**
+     * Encrypt the archive's data with AES-256 (the 7z `7zAES` coder), protected
+     * by this password. Filenames and other metadata stay readable, matching
+     * `7z a -p<password>` without `-mhe`. Omit (or leave empty) for no
+     * encryption. Decryptable by 7-Zip / p7zip with the same password.
+     */
+    password?: string;
 };

@@ -169,4 +169,99 @@ describe('7z archive validation (real 7-Zip)', () => {
         expect(result.size).toBeLessThan(raw);
         expect(run7z(['t', out]).stdout).toContain('Everything is Ok');
     });
+
+    // An explicit numeric compressionLevel must take precedence over the
+    // `compression` preset instead of being silently overridden (issue #83).
+    it('lets an explicit compressionLevel win over the compression preset', async () => {
+        const src = path.join(tmpDir, 'precedence-src');
+        fs.mkdirSync(src, {recursive: true});
+        // Varied (not trivially repetitive) content, so levels 1 and 9 produce
+        // measurably different sizes and "which one wins" is observable.
+        for (let i = 0; i < 10; i++) {
+            let body = '';
+            for (let j = 0; j < 800; j++) {
+                body += `row ${i}-${j}: ${((j * 2654435761) >>> 0).toString(36)} value=${(i * j) % 7} tag_${j % 50}\n`;
+            }
+            fs.writeFileSync(path.join(src, `f${i}.txt`), body);
+        }
+
+        const sizeFor = async (opts: Parameters<typeof sevenZip>[2]): Promise<number> => {
+            const out = path.join(tmpDir, 'precedence.7z');
+            const result = await sevenZip(src, out, opts);
+            expect(run7z(['t', out]).stdout).toContain('Everything is Ok');
+            return result.size;
+        };
+
+        const level9 = await sizeFor({compressionLevel: 9});
+        const level1 = await sizeFor({compressionLevel: 1});
+        // Sanity: the numeric scale is live — level 9 compresses this payload
+        // clearly better than level 1.
+        expect(level9).toBeLessThan(level1);
+
+        // With both options set, the numeric level wins: pairing level 9 with
+        // the weakest preset lands in the level-9 size range, not the level-1
+        // one. (Exact bytes aren't asserted — the native LZMA encoder is not
+        // byte-deterministic run to run — but the L1/L9 gap dwarfs that jitter.)
+        const bothLevel9 = await sizeFor({compressionLevel: 9, compression: 'uncompressed'});
+        const midpoint = (level1 + level9) / 2;
+        expect(bothLevel9).toBeLessThan(midpoint);
+    });
+
+    // Password-protected archives (issue #83): AES-256 `7zAES` coder, decryptable
+    // by real 7-Zip with the password and rejected with a wrong one.
+    describe('AES-256 encryption (password)', () => {
+        const password = 'Str0ng P@ss — ünïcödé';
+
+        const buildEncrypted = (name: string, build: (src: string) => void): {src: string; out: string} => {
+            const src = path.join(tmpDir, `enc-src-${name}`);
+            fs.mkdirSync(src, {recursive: true});
+            build(src);
+            const out = path.join(tmpDir, `enc-${name}.7z`);
+            return {src, out};
+        };
+
+        it('creates an archive 7-Zip opens and extracts with the correct password', async () => {
+            const {src, out} = buildEncrypted('basic', (s) => {
+                fs.mkdirSync(path.join(s, 'sub'), {recursive: true});
+                fs.writeFileSync(path.join(s, 'a.txt'), 'secret alpha');
+                fs.writeFileSync(path.join(s, 'sub', 'b.txt'), `secret beta ${'x'.repeat(500)}`);
+                fs.writeFileSync(path.join(s, 'empty.txt'), '');
+            });
+            const result = await sevenZip(src, out, {password, compression: 'high'});
+            expect(result.count).toBe(3);
+            expect(result.size).toBe(fs.statSync(out).size);
+
+            // Valid with the right password.
+            expect(run7z(['t', `-p${password}`, out]).stdout).toContain('Everything is Ok');
+
+            // Extract and verify every file round-trips byte-for-byte.
+            const ext = path.join(tmpDir, 'enc-ext-basic');
+            fs.mkdirSync(ext, {recursive: true});
+            expect(run7z(['x', '-y', `-p${password}`, `-o${ext}`, out]).status).toBe(0);
+            for (const rel of listFiles(src)) {
+                expect(fs.readFileSync(path.join(ext, rel)).equals(fs.readFileSync(path.join(src, rel)))).toBe(true);
+            }
+        });
+
+        it('cannot be opened with the wrong password', async () => {
+            const {src, out} = buildEncrypted('wrongpw', (s) => {
+                fs.writeFileSync(path.join(s, 'f.txt'), 'top secret payload '.repeat(50));
+            });
+            await sevenZip(src, out, {password});
+
+            // 7-Zip reports a non-zero status and does not confirm success.
+            const {status, stdout} = run7z(['t', '-pdefinitely-wrong', out]);
+            expect(status).not.toBe(0);
+            expect(stdout).not.toContain('Everything is Ok');
+        });
+
+        it('treats an empty password as no encryption', async () => {
+            const {src, out} = buildEncrypted('emptypw', (s) => {
+                fs.writeFileSync(path.join(s, 'f.txt'), 'not encrypted');
+            });
+            await sevenZip(src, out, {password: ''});
+            // Opens with no password at all.
+            expect(run7z(['t', out]).stdout).toContain('Everything is Ok');
+        });
+    });
 });

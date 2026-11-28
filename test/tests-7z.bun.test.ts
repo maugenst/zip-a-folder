@@ -2,11 +2,13 @@
 // Also acts as a regression guard for github.com/maugenst/zip-a-folder/issues/73:
 // if @napi-rs/lzma left open handles the process would hang after this suite
 // finishes; CI catches that via `timeout 30 bun test ...`.
+import {spawnSync} from 'child_process';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import {PassThrough, Writable} from 'stream';
+import {path7z} from '7z-bin';
 import {afterAll, beforeAll, describe, expect, it} from 'bun:test';
 import * as zlib from 'zlib';
 import {collectEntriesFromDirectory, collectGlobEntries} from '../lib/core/FileCollector';
@@ -361,6 +363,20 @@ describe('Zip-A-Folder — zip and tar', () => {
         const out = path.resolve(testDir, 'test.bun.store.zip');
         await zip(path.resolve(testDir, 'data/'), out, {store: true, compression: COMPRESSION_LEVEL.uncompressed});
         expect(fs.existsSync(out)).toBe(true);
+    });
+
+    it('ZIP: password sets the AES encrypted flag and method 99', async () => {
+        const out = path.resolve(testDir, 'test.encrypted.bun.zip');
+        await zip(path.resolve(testDir, 'data/'), out, {password: 'bun-secret'});
+        const buf = fs.readFileSync(out);
+        // Every file entry is flagged encrypted (general-purpose bit 0).
+        const entries = parseCentralDirectory(buf).filter((e) => !e.name.endsWith('/'));
+        expect(entries.length).toBeGreaterThan(0);
+        for (const e of entries) {
+            expect(e.generalFlag & 0x0001).toBe(0x0001);
+        }
+        // The WinZip AES extra field (header id 0x9901) is present.
+        expect(buf.includes(Buffer.from([0x01, 0x99]))).toBe(true);
     });
 
     it('ZIP: source is a file throws', async () => {
@@ -1137,5 +1153,94 @@ describe('core utils', () => {
         expect(looksLikeGlob('**/*.json')).toBe(true);
         expect(looksLikeGlob('foo/*.txt')).toBe(true);
         expect(looksLikeGlob('no/glob/here.txt')).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Password encryption under Bun — proves Bun's node:crypto (PBKDF2/AES/HMAC for
+// ZIP, SHA-256 KDF + AES-CBC for 7z) produces archives the real 7-Zip binary
+// decrypts, and rejects the wrong password. Regression guard for Bun-specific
+// crypto differences.
+// ---------------------------------------------------------------------------
+
+describe('Password encryption (Bun crypto vs real 7-Zip)', () => {
+    let tmp: string;
+    const password = 'Bün-P@ss-123 — ünïcödé';
+
+    beforeAll(() => {
+        tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zaf-bun-enc-'));
+        fs.mkdirSync(path.join(tmp, 'src', 'sub'), {recursive: true});
+        fs.writeFileSync(path.join(tmp, 'src', 'a.txt'), 'secret alpha');
+        fs.writeFileSync(path.join(tmp, 'src', 'sub', 'b.txt'), `secret beta ${'x'.repeat(400)}`);
+        fs.writeFileSync(path.join(tmp, 'src', 'empty.txt'), '');
+    });
+
+    afterAll(() => {
+        fs.rmSync(tmp, {recursive: true, force: true});
+    });
+
+    const files = ['a.txt', 'sub/b.txt', 'empty.txt'];
+
+    function run7z(args: string[]): {status: number | null; stdout: string} {
+        const r = spawnSync(path7z, args, {encoding: 'utf8'});
+        return {status: r.status, stdout: `${r.stdout ?? ''}${r.stderr ?? ''}`};
+    }
+
+    async function assertEncrypted(label: string, out: string, make: () => Promise<unknown>): Promise<void> {
+        await make();
+        // Correct password opens it.
+        expect(run7z(['t', `-p${password}`, out]).stdout).toContain('Everything is Ok');
+        // Wrong password is rejected.
+        const wrong = run7z(['t', '-pWRONG', out]);
+        expect(wrong.status).not.toBe(0);
+        expect(wrong.stdout).not.toContain('Everything is Ok');
+        // Extracted contents round-trip byte-for-byte.
+        const ext = path.join(tmp, `ext-${label}`);
+        fs.mkdirSync(ext, {recursive: true});
+        expect(run7z(['x', '-y', `-p${password}`, `-o${ext}`, out]).status).toBe(0);
+        for (const rel of files) {
+            const got = fs.readFileSync(path.join(ext, rel));
+            const want = fs.readFileSync(path.join(tmp, 'src', rel));
+            expect(got.equals(want)).toBe(true);
+        }
+    }
+
+    it('ZIP: WinZip AES-256 archive decrypts in 7-Zip', async () => {
+        const out = path.join(tmp, 'enc.zip');
+        await assertEncrypted('zip', out, () => zip(path.join(tmp, 'src'), out, {password, compression: 'high'}));
+    });
+
+    it('7z: AES-256 archive decrypts in 7-Zip', async () => {
+        const out = path.join(tmp, 'enc.7z');
+        await assertEncrypted('7z', out, () => sevenZip(path.join(tmp, 'src'), out, {password, compression: 'high'}));
+    });
+
+    it('ZIP: legacy ZipCrypto archive decrypts in 7-Zip', async () => {
+        const out = path.join(tmp, 'enc-zc.zip');
+        await assertEncrypted('zip-zc', out, () =>
+            zip(path.join(tmp, 'src'), out, {password, encryptionMethod: 'zipcrypto'})
+        );
+    });
+
+    it('reports onProgress ending at 100 (zip and 7z)', async () => {
+        for (const [out, make] of [
+            [
+                path.join(tmp, 'prog.zip'),
+                (o: string, cb: (p: number) => void) => zip(path.join(tmp, 'src'), o, {onProgress: cb})
+            ],
+            [
+                path.join(tmp, 'prog.7z'),
+                (o: string, cb: (p: number) => void) => sevenZip(path.join(tmp, 'src'), o, {onProgress: cb})
+            ]
+        ] as const) {
+            const pcts: number[] = [];
+            await make(out, (p) => pcts.push(p));
+            expect(pcts.length).toBeGreaterThan(0);
+            expect(pcts[0]).toBeGreaterThan(0);
+            expect(pcts[pcts.length - 1]).toBe(100);
+            for (let i = 1; i < pcts.length; i++) {
+                expect(pcts[i]).toBeGreaterThanOrEqual(pcts[i - 1]);
+            }
+        }
     });
 });

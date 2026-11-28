@@ -13,7 +13,7 @@ import {
     TarArchiveOptions,
     ZipArchiveOptions
 } from './core/types';
-import {ByteCountingStream, looksLikeGlob} from './core/utils';
+import {ByteCountingStream, looksLikeGlob, ProgressTracker} from './core/utils';
 import {NativeTar} from './tar/NativeTar';
 import {NativeZip} from './zip/NativeZip';
 
@@ -94,7 +94,9 @@ export class ZipAFolder {
             forceZip64: options.forceZip64,
             namePrependSlash: options.namePrependSlash,
             store: zipStore,
-            zlib: zlibOptions
+            zlib: zlibOptions,
+            password: options.password,
+            encryptionMethod: options.encryptionMethod
         });
 
         const cwd = process.cwd();
@@ -158,8 +160,13 @@ export class ZipAFolder {
 
         // Files.
         const fileEntries = entries.filter((x) => !x.isDirectory);
+        const progress = new ProgressTracker(
+            fileEntries.reduce((sum, e) => sum + e.stat.size, 0),
+            options.onProgress
+        );
         for (const e of fileEntries) {
             await zipper.addFileFromFs(e.fsPath, e.relativePath, e.stat.mtime, e.stat.mode);
+            progress.advance(e.stat.size);
         }
 
         if (!customWS && hasTargetPath) {
@@ -174,6 +181,7 @@ export class ZipAFolder {
 
         await zipper.writeToStream(counter);
         await ZipAFolder.awaitDrain(destination);
+        progress.finish();
 
         return {count: fileEntries.length, size: counter.bytesCounted};
     }
@@ -324,8 +332,13 @@ export class ZipAFolder {
         }
         // File entries.
         const fileEntries = entries.filter((x) => !x.isDirectory);
+        const progress = new ProgressTracker(
+            fileEntries.reduce((sum, e) => sum + e.stat.size, 0),
+            options.onProgress
+        );
         for (const e of fileEntries) {
             await tarWriter.addFile(e);
+            progress.advance(e.stat.size);
         }
 
         await tarWriter.finalize();
@@ -355,6 +368,7 @@ export class ZipAFolder {
             // counter into finalOut).
             (tarDestination as any).end?.();
         });
+        progress.finish();
 
         return {count: fileEntries.length, size: counter.bytesCounted};
     }
@@ -409,19 +423,25 @@ export class ZipAFolder {
             entries = await collectEntriesFromDirectory(sourceDir, statConcurrency, options.exclude);
         }
 
-        // Determine compression level
-        let compressionLevel = options.compressionLevel ?? 5;
+        // Determine compression level. An explicit numeric `compressionLevel`
+        // (1-9) always wins — it is the more specific control. Only when it is
+        // absent does the `compression` preset decide the level; with neither,
+        // the default is 5.
+        let compressionLevel: number;
 
-        if (options.compression !== undefined) {
+        if (options.compressionLevel !== undefined) {
+            compressionLevel = options.compressionLevel;
+        } else {
             switch (options.compression) {
                 case 'uncompressed':
                     compressionLevel = 1; // 7z always uses LZMA, use minimum compression
                     break;
-                case 'medium':
-                    compressionLevel = 5;
-                    break;
                 case 'high':
                     compressionLevel = 9;
+                    break;
+                default:
+                    // 'medium' or no preset at all.
+                    compressionLevel = 5;
                     break;
             }
         }
@@ -434,15 +454,25 @@ export class ZipAFolder {
         const destination: NodeJS.WritableStream = customWS ?? fs.createWriteStream(targetFilePath as string);
         const counter = new ByteCountingStream();
         counter.pipe(destination);
-        const sevenZWriter = new Native7z(compressionLevel);
+        const sevenZWriter = new Native7z(compressionLevel, options.password);
 
-        // Add file entries (7z doesn't need explicit directory entries)
+        // Add file entries (7z doesn't need explicit directory entries). Progress
+        // tracks the file-reading phase; the single LZMA step runs in writeToStream.
+        const fileEntries = entries.filter((e) => !e.isDirectory);
+        const progress = new ProgressTracker(
+            fileEntries.reduce((sum, e) => sum + e.stat.size, 0),
+            options.onProgress
+        );
         for (const e of entries) {
             await sevenZWriter.addFile(e);
+            if (!e.isDirectory) {
+                progress.advance(e.stat.size);
+            }
         }
 
         await sevenZWriter.writeToStream(counter);
         await ZipAFolder.awaitDrain(destination);
+        progress.finish();
 
         return {count: sevenZWriter.fileCount, size: counter.bytesCounted};
     }

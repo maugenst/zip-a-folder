@@ -2,13 +2,21 @@
 import * as fs from 'fs';
 import {promisify} from 'util';
 import * as zlib from 'zlib';
-import {crc32, dateToDosDate, dateToDosTime, writeUInt64LE} from '../core/utils';
+import {crc32, dateToDosDate, dateToDosTime, winZipAesEncrypt, zipCryptoEncrypt, writeUInt64LE} from '../core/utils';
 
 /**
  * Asynchronous raw DEFLATE. Moves compression onto Node's threadpool so it does
  * not block the event loop while files are being zipped.
  */
 const deflateRawAsync = promisify(zlib.deflateRaw);
+
+// WinZip AES (AE-2) constants: the method stored in the header for an AES entry,
+// the extra-field header id, and AES-256 strength.
+const ZIP_AES_METHOD = 99;
+const ZIP_AES_EXTRA_ID = 0x9901;
+const ZIP_AES_VERSION_AE2 = 2;
+const ZIP_AES_STRENGTH_256 = 3;
+const ZIP_GP_FLAG_ENCRYPTED = 0x0001;
 
 /**
  * Low-level ZIP entry representation.
@@ -27,6 +35,11 @@ class ZipEntry {
 
     public localHeaderOffset = 0;
 
+    /** True when compressedData is WinZip-AES-encrypted (method stored as 99). */
+    public encrypted = false;
+    /** The real compression method, preserved in the AES extra field when encrypted. */
+    public actualCompressionMethod = 0;
+
     constructor(params: {
         name: string;
         isDirectory: boolean;
@@ -37,6 +50,8 @@ class ZipEntry {
         uncompressedSize: number;
         compressionMethod: number;
         compressedData: Buffer;
+        encrypted?: boolean;
+        actualCompressionMethod?: number;
     }) {
         this.name = params.name;
         this.isDirectory = params.isDirectory;
@@ -47,6 +62,8 @@ class ZipEntry {
         this.uncompressedSize = params.uncompressedSize;
         this.compressionMethod = params.compressionMethod;
         this.compressedData = params.compressedData;
+        this.encrypted = params.encrypted === true;
+        this.actualCompressionMethod = params.actualCompressionMethod ?? params.compressionMethod;
     }
 }
 
@@ -60,6 +77,10 @@ export interface NativeZipOptions {
     namePrependSlash?: boolean;
     store?: boolean;
     zlib?: zlib.ZlibOptions;
+    /** When set, file entries are encrypted with the scheme in `encryptionMethod`. */
+    password?: string;
+    /** Encryption scheme when `password` is set (default `'aes256'`). */
+    encryptionMethod?: 'aes256' | 'zipcrypto';
 }
 
 /** Regex matching a ".." path segment in a POSIX-normalized archive entry name. */
@@ -77,6 +98,22 @@ function assertSafeName(name: string): void {
 }
 
 /**
+ * Build the WinZip AES extra field (header id 0x9901) that records the AE-2
+ * version, the "AE" vendor marker, AES-256 strength, and the real compression
+ * method that was applied before encryption.
+ */
+function buildAesExtraField(actualMethod: number): Buffer {
+    const extra = Buffer.alloc(4 + 7);
+    extra.writeUInt16LE(ZIP_AES_EXTRA_ID, 0);
+    extra.writeUInt16LE(7, 2); // data size
+    extra.writeUInt16LE(ZIP_AES_VERSION_AE2, 4);
+    extra.write('AE', 6, 'latin1'); // vendor id
+    extra.writeUInt8(ZIP_AES_STRENGTH_256, 8);
+    extra.writeUInt16LE(actualMethod, 9);
+    return extra;
+}
+
+/**
  * Native ZIP writer using only Node's built-in modules.
  *
  * - Supports standard ZIP up to 4GB.
@@ -91,6 +128,8 @@ export class NativeZip {
     private forceZip64: boolean;
     private store: boolean;
     private zlibOptions?: zlib.ZlibOptions;
+    private password?: string;
+    private encryptionMethod: 'aes256' | 'zipcrypto';
 
     /* istanbul ignore next */
     constructor(options: NativeZipOptions = {}) {
@@ -99,6 +138,8 @@ export class NativeZip {
         this.forceZip64 = options.forceZip64 === true;
         this.store = options.store === true;
         this.zlibOptions = options.zlib;
+        this.password = options.password && options.password.length > 0 ? options.password : undefined;
+        this.encryptionMethod = options.encryptionMethod ?? 'aes256';
     }
 
     /**
@@ -152,6 +193,54 @@ export class NativeZip {
             method = 8; // DEFLATE
         }
 
+        // WinZip AES (AE-2): encrypt the compressed bytes and wrap them as
+        // salt ++ passwordVerify ++ ciphertext ++ authCode. The header method
+        // becomes 99 and the real method is preserved in the AES extra field.
+        if (this.password && this.encryptionMethod === 'aes256') {
+            const {salt, passwordVerify, ciphertext, authCode} = winZipAesEncrypt(this.password, compressed);
+            const encrypted = Buffer.concat([salt, passwordVerify, ciphertext, authCode]);
+            this.entries.push(
+                new ZipEntry({
+                    name,
+                    isDirectory: false,
+                    date,
+                    mode,
+                    // AE-2 stores the CRC as 0; integrity is covered by the HMAC auth code.
+                    crc32: 0,
+                    compressedSize: encrypted.length,
+                    uncompressedSize: data.length,
+                    compressionMethod: ZIP_AES_METHOD,
+                    compressedData: encrypted,
+                    encrypted: true,
+                    actualCompressionMethod: method
+                })
+            );
+            return;
+        }
+
+        // Legacy ZipCrypto: prepend the 12-byte encryption header and encrypt;
+        // the real method and CRC are kept (no AES extra field), and only the
+        // encrypted bit is set in the general-purpose flag.
+        if (this.password) {
+            const encrypted = zipCryptoEncrypt(this.password, compressed, sum);
+            this.entries.push(
+                new ZipEntry({
+                    name,
+                    isDirectory: false,
+                    date,
+                    mode,
+                    crc32: sum,
+                    compressedSize: encrypted.length,
+                    uncompressedSize: data.length,
+                    compressionMethod: method,
+                    compressedData: encrypted,
+                    encrypted: true,
+                    actualCompressionMethod: method
+                })
+            );
+            return;
+        }
+
         this.entries.push(
             new ZipEntry({
                 name,
@@ -197,6 +286,14 @@ export class NativeZip {
                     // UTF-8 encoded name differs from its byte-for-byte latin1 form, i.e. it
                     // contains non-ASCII characters. This tells readers the name is UTF-8.
                     const utf8Flag = Buffer.from(entry.name, 'latin1').equals(nameBuffer) ? 0x0000 : 0x0800;
+                    // Bit 0 marks the entry encrypted (AES or legacy ZipCrypto).
+                    const generalFlag = utf8Flag | (entry.encrypted ? ZIP_GP_FLAG_ENCRYPTED : 0);
+                    // Only WinZip AES entries (method 99) carry the 0x9901 extra field;
+                    // ZipCrypto entries keep their real method and no AES extra.
+                    const aesExtra =
+                        entry.compressionMethod === ZIP_AES_METHOD
+                            ? buildAesExtraField(entry.actualCompressionMethod)
+                            : Buffer.alloc(0);
                     const dosTime = dateToDosTime(entry.date, this.useLocalTime);
                     const dosDate = dateToDosDate(entry.date, this.useLocalTime);
 
@@ -225,6 +322,9 @@ export class NativeZip {
                         q += 8;
                         localExtra = extra;
                     }
+                    if (aesExtra.length > 0) {
+                        localExtra = Buffer.concat([localExtra, aesExtra]);
+                    }
 
                     // --- Local file header ---
                     const localHeader = Buffer.alloc(30);
@@ -237,7 +337,7 @@ export class NativeZip {
                     localHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
                     p += 2;
                     // general purpose bit flag
-                    localHeader.writeUInt16LE(utf8Flag, p);
+                    localHeader.writeUInt16LE(generalFlag, p);
                     p += 2;
                     // compression method
                     localHeader.writeUInt16LE(entry.compressionMethod, p);
@@ -302,7 +402,7 @@ export class NativeZip {
                     centralHeader.writeUInt16LE(useZip64 ? 45 : 20, p);
                     p += 2;
                     // general purpose bit flag
-                    centralHeader.writeUInt16LE(utf8Flag, p);
+                    centralHeader.writeUInt16LE(generalFlag, p);
                     p += 2;
                     // compression method
                     centralHeader.writeUInt16LE(entry.compressionMethod, p);
@@ -351,6 +451,9 @@ export class NativeZip {
                         writeUInt64LE(extra, entry.localHeaderOffset, q);
                         q += 8;
                         centralExtra = extra;
+                    }
+                    if (aesExtra.length > 0) {
+                        centralExtra = Buffer.concat([centralExtra, aesExtra]);
                     }
 
                     // extra length

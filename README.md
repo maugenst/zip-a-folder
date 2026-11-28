@@ -22,6 +22,13 @@ Feature overview:
 - Custom write streams
 - Compression presets (`high`, `medium`, `uncompressed`)
 
+> **Philosophy — ease of use first.** zip-a-folder is built to make archiving a
+> folder simple, dependency-light, and predictable — nothing more, nothing less.
+> It is **not** built to be the fastest or to squeeze out the highest compression
+> ratio. For most of that it is close (see [7z Performance vs 7-Zip](#7z-performance-vs-7-zip)),
+> but if raw speed and maximum compression are your priority, reach for a native
+> implementation such as [`7z-bin`](https://www.npmjs.com/package/7z-bin) instead.
+
 ---
 
 ## Table of Contents
@@ -40,6 +47,7 @@ Feature overview:
 - [Excluding Files and Directories (exclude)](#excluding-files-and-directories-exclude)
 - [Module Import Structure](#module-import-structure)
 - [Native Implementation Notes](#native-implementation-notes)
+- [7z Performance vs 7-Zip](#7z-performance-vs-7-zip)
 - [Unix Permissions Preservation in ZIP](#unix-permissions-preservation-in-zip)
 - [Command Line Interface (CLI)](#command-line-interface-cli)
 - [Running Tests](#running-tests)
@@ -98,6 +106,27 @@ console.log(`archived ${count} files into ${size} bytes`);
 you pass a `customWriteStream` and there is no target path to `stat`. Callers
 that ignore the returned value keep working unchanged.
 
+### Progress reporting
+
+All three functions accept an `onProgress` callback that receives an integer
+percent (0–100) as files are archived:
+
+```js
+await zip('/path/to/folder', '/path/to/archive.zip', {
+    onProgress: (percent) => process.stdout.write(`\rpacking… ${percent}%`)
+});
+```
+
+The value is **monotonic** (never decreases), starts above 0, and **100 is always
+emitted once** at the end. Progress is based on input bytes processed:
+
+- For **ZIP** and **TAR/TGZ/TAR.BR** it tracks the actual per-file compression as
+  each file is written.
+- For **7z** it reflects the file-reading phase only. All data is then compressed
+  in a single native LZMA step that cannot be subdivided, so progress approaches
+  the high-90s as the last file is read and the final `100` fires once that step
+  completes.
+
 ---
 
 ## Compression Handling
@@ -135,9 +164,12 @@ await zip('/path/to/folder', '/path/to/archive.zip', {
 | `namePrependSlash`  | `boolean`     | Prefix all ZIP entry names with `/`  |
 | `store`             | `boolean`     | Force STORE method (no compression)  |
 | `zlib`              | `ZlibOptions` | Passed directly to `zlib.deflateRaw` |
+| `password`          | `string`      | Encrypt file contents (default AES-256). Filenames stay readable. |
+| `encryptionMethod`  | `'aes256' \| 'zipcrypto'` | Encryption scheme when `password` is set (default `'aes256'`; `'zipcrypto'` is weak, for legacy readers) |
 | `statConcurrency`   | `number`      | Parallel `stat` workers (default: 4) |
 | `destPath`          | `string`      | Prefix inside the archive (>=3.1)    |
 | `exclude`           | `string[]`    | Glob patterns for paths to omit      |
+| `onProgress`        | `(percent: number) => void` | Archiving progress callback (0–100) |
 | `customWriteStream` | `WriteStream` | Manually handle output               |
 
 Example:
@@ -153,6 +185,52 @@ await zip('/dir', '/archive.zip', {
 });
 ```
 
+### Password protection
+
+```js
+// Strong, recommended: WinZip AES-256 (the default)
+await zip('/dir', '/archive.zip', { password: 'correct horse battery staple' });
+```
+
+By default, file contents are encrypted with **WinZip AES-256** (the AE-2 scheme:
+PBKDF2-HMAC-SHA1 key derivation, AES-256 in counter mode, HMAC-SHA1
+authentication). Filenames and metadata stay readable; the *contents* require the
+password. 7-Zip, WinZip, p7zip and macOS `bsdtar` open it with the password, and
+the wrong password is rejected. The encryption uses Node's built-in `crypto` — no
+extra dependency.
+
+The scheme is selectable via `encryptionMethod` (only used when `password` is set):
+
+```js
+// Legacy compatibility: PKWARE "ZipCrypto"
+await zip('/dir', '/archive.zip', {
+    password: 'correct horse battery staple',
+    encryptionMethod: 'zipcrypto'
+});
+```
+
+- `'aes256'` (default) — strong AES-256. Use this unless you have a specific
+  reason not to.
+- `'zipcrypto'` — legacy PKWARE encryption. **Cryptographically broken** (a
+  practical known-plaintext attack recovers the keystream), so do not rely on it
+  for real confidentiality. Its *only* advantage is reach: it opens in old
+  readers that predate AES — including the `unzip`/`ditto` bundled with macOS and
+  Finder's Archive Utility, and Windows Explorer's built-in zip. Passwords are
+  encoded as UTF-8 (matching 7-Zip); stick to ASCII passwords for maximum
+  cross-tool compatibility.
+
+> **Decrypting an AES zip on macOS:** the native `bsdtar` (libarchive) supports
+> AES zips, while the bundled `unzip`/`ditto` and Finder do not (they report
+> "unsupported compression method" for method 99):
+>
+> ```bash
+> bsdtar -xf archive.zip --passphrase 'correct horse battery staple'
+> ```
+>
+> If you specifically need the archive to open by double-clicking in Finder or
+> with the bundled `unzip`, use `encryptionMethod: 'zipcrypto'` — accepting its
+> weak security.
+
 ---
 
 ## TAR / TGZ / TAR.BR Options
@@ -165,7 +243,14 @@ await zip('/dir', '/archive.zip', {
 | `brotliOptions`     | `BrotliOptions`            | Passed to `zlib.createBrotliCompress`                            |
 | `statConcurrency`   | `number`                   | Parallel `stat` workers                                          |
 | `exclude`           | `string[]`                 | Glob patterns to omit                                            |
+| `onProgress`        | `(percent: number) => void` | Archiving progress callback (0–100)                            |
 | `compression`       | `COMPRESSION_LEVEL`        | Convenience preset (`high`, `medium`, `uncompressed`)            |
+
+> **No password option for TAR.** The tar format and the gzip/brotli stream
+> formats define no in-archive encryption, so there is nothing interoperable to
+> implement — a `.tgz`/`.tar.br` is always readable by standard tools. For an
+> encrypted archive, use `zip()` or `sevenZip()` with a `password`, or encrypt
+> the output yourself (e.g. pipe through `gpg`).
 
 ### Gzip Example
 
@@ -224,10 +309,12 @@ Create 7z archives with LZMA compression using the `sevenZip()` function.
 
 | Option              | Type               | Description                                           |
 | ------------------- | ------------------ | ----------------------------------------------------- |
-| `compression`       | `COMPRESSION_LEVEL`| Convenience preset (`high`, `medium`, `uncompressed`) |
-| `compressionLevel`  | `number` (1-9)     | LZMA compression level (default: 5)                   |
+| `compression`       | `COMPRESSION_LEVEL`| Convenience preset (`high` → 9, `medium` → 5, `uncompressed` → 1). Ignored when `compressionLevel` is set. |
+| `compressionLevel`  | `number` (1-9)     | LZMA compression level (default: 5). Takes precedence over `compression`. |
+| `password`          | `string`           | Encrypt the data with AES-256 (`7zAES`). Filenames stay readable. |
 | `statConcurrency`   | `number`           | Parallel `stat` workers (default: 4)                  |
 | `exclude`           | `string[]`         | Glob patterns to omit                                 |
+| `onProgress`        | `(percent: number) => void` | Archiving progress callback (0–100; see [Progress reporting](#progress-reporting)) |
 | `customWriteStream` | `WriteStream`      | Manually handle output                                |
 
 ### Basic Example
@@ -267,6 +354,21 @@ await sevenZip('/project', '/archive.7z', {
     exclude: ['node_modules/**', '**/*.log']
 });
 ```
+
+### With a Password (AES-256)
+
+```js
+await sevenZip('/project', '/archive.7z', {
+    password: 'correct horse battery staple'
+});
+```
+
+The archive data is encrypted with AES-256 (the 7z `7zAES` coder) using a
+key derived from the password with 7-Zip's SHA-256 key-derivation function.
+Filenames and other metadata stay readable (the same as `7z a -p<password>`
+without `-mhe`); the file *contents* require the password. 7-Zip and p7zip
+open it with `7z x -p<password>`, and the wrong password is rejected. The
+encryption uses Node's built-in `crypto` — no extra dependency.
 
 > **Note:** 7z archives use native LZMA compression via `@napi-rs/lzma`. Pre-built binaries are automatically
 > selected at install time for your platform — no compiler required. A WASM fallback is used on unsupported
@@ -433,6 +535,48 @@ import type { ZipArchiveOptions, TarArchiveOptions } from 'zip-a-folder';
 
 ---
 
+## 7z Performance vs 7-Zip
+
+zip-a-folder's `sevenZip()` uses the native `@napi-rs/lzma` binding. It is **not**
+trying to beat the full `7z` binary — it aims to produce correct, standard 7z
+archives with zero runtime dependencies and no separate executable to ship. For
+a sense of the trade-off, there is a local benchmark that compares it against
+the `7z-bin` binary (a devDependency, used only for testing/benchmarking):
+
+```bash
+npm run build && npm run benchmark
+```
+
+Representative run (Apple M-series, 8.5 MiB corpus of compressible text + random
+binary, median of 5 runs — your numbers will vary):
+
+| level | zip-a-folder | 7z-bin | compressed size Δ |
+| ----- | ------------ | ------ | ----------------- |
+| 1     | ~330 ms      | ~50 ms  | −0.3% (slightly smaller) |
+| 5     | ~760 ms      | ~350 ms | +1.3% |
+| 9     | ~1130 ms     | ~700 ms | +1.4% |
+
+### Reasoning for the differences
+
+- **Speed — `7z-bin` is ~2–7× faster.** The `7z` binary is native, heavily
+  hand-optimized C++ and **multi-threaded**; it splits work across cores. `@napi-rs/lzma`
+  runs the compression on a single thread, so wall-clock time is higher — most
+  visibly at level 1, where fixed LZMA setup cost dominates a small workload.
+- **Compression — within ~1–2%, essentially on par.** The raw LZMA stream
+  `@napi-rs/lzma` produces is close to optimal, so for most inputs the sizes are
+  nearly identical (and zip-a-folder can even come out marginally smaller at the
+  lowest level). `7z` pulls slightly ahead at higher levels because it applies
+  extra **filters** — BCJ/branch filters for executables, delta filters — and
+  finer LZMA2 parameter tuning that `@napi-rs/lzma` does not expose. The gap is
+  largest on binary-heavy, filterable data and negligible on plain text.
+- **Why not just shell out to `7z`?** That would reintroduce an external binary
+  dependency (platform-specific, must be installed or bundled), which is exactly
+  what the native implementation avoids. If you need the absolute best ratio or
+  speed and can take that dependency, a tool like `7z-bin` is the right choice;
+  if you want a self-contained, dependency-light 7z writer, this is the trade.
+
+---
+
 ## Unix Permissions Preservation in ZIP
 
 A recent contribution restored correct handling of file modes for Unix systems inside ZIP archives:
@@ -553,6 +697,12 @@ A separate **Bun** test suite covers the full test matrix under Bun's runtime an
 bun test ./test/tests-7z.bun.test.ts
 ```
 
+A local benchmark compares the native `sevenZip()` against the `7z-bin` binary (build first so it runs against `dist/`):
+
+```bash
+npm run build && npm run benchmark
+```
+
 ---
 
 ## Thanks
@@ -575,7 +725,13 @@ Special thanks to contributors:
 - @DocBouCou – UTF-8 ZIP filename flag ([issue #75](https://github.com/maugenst/zip-a-folder/issues/75)) and non-blocking async ZIP compression ([issue #76](https://github.com/maugenst/zip-a-folder/issues/76))
 - [UCSB PLSE group](https://ucsbplse.github.io/) – coordinated disclosure of the symlink-escape vulnerability (reached through a symlink, bypassing the v7.0.1 cwd-escape fix), found via automated differential testing
 - @jayhemnani9910 (Jay Hemnani) – default ZIP timestamps to local time ([issue #61](https://github.com/maugenst/zip-a-folder/issues/61), [PR #77](https://github.com/maugenst/zip-a-folder/pull/77)) and the long-path TAR PAX fix ([PR #82](https://github.com/maugenst/zip-a-folder/pull/82))
-- @vitaly-t (Code Scratcher) – reporting the corrupt 7z output ([issue #81](https://github.com/maugenst/zip-a-folder/issues/81)) and requesting the `{ count, size }` archive result ([issue #80](https://github.com/maugenst/zip-a-folder/issues/80))
+- @vitaly-t (Code Scratcher) – whose detailed reports and ideas drove a whole
+  wave of 7z improvements: the corrupt-7z fix ([issue #81](https://github.com/maugenst/zip-a-folder/issues/81)),
+  the `{ count, size }` archive result ([issue #80](https://github.com/maugenst/zip-a-folder/issues/80)),
+  and the compression-level precedence fix plus 7z/ZIP AES-256 password support
+  ([issue #83](https://github.com/maugenst/zip-a-folder/issues/83)). The concrete
+  suggestions in those issues — including the `7z-bin` comparison — shaped how
+  these features were designed and implemented.
 
 Additional thanks to everyone helping shape the native rewrite.
 
@@ -643,9 +799,15 @@ A major rewrite using:
 - **Security fix (symlink escape — all formats):** A symlink inside the source tree could smuggle files from outside it into an archive, bypassing the v7.0.1 cwd-escape guard. In directory mode a symlinked directory was walked (archiving its target's files under the link name, e.g. `linkdir/key.txt`); in glob mode a symlinked file (`linkfile.txt`) or files reached through a symlinked directory were followed via `fs.stat`. Both collectors now pass `followSymbolicLinks: false` to the glob and additionally reject symlinks with `lstat`, so only files genuinely inside the source tree are archived. This also covers `tar()` and `sevenZip()`, which use the same collectors. Found with automated differential testing by the [UCSB PLSE group](https://ucsbplse.github.io/) and reported via coordinated disclosure.
 - **ZIP timestamps now default to local time:** ZIP stores file times in DOS date/time fields, which carry no timezone and are read as **local time** by virtually every tool (`unzip`, Python `zipfile`, 7-Zip, Windows). Previously `NativeZip` wrote UTC unless `forceLocalTime: true` was passed, so outside UTC extracted mtimes were off by the UTC offset. Local time is now the default; pass `forceLocalTime: false` to keep the old UTC behaviour. Fixes [issue #61](https://github.com/maugenst/zip-a-folder/issues/61) via [PR #77](https://github.com/maugenst/zip-a-folder/pull/77) by [@jayhemnani9910](https://github.com/jayhemnani9910).
 
-### Version 7.2.2 (current)
+### Version 7.3.0 (current)
 
 - **7z archives are no longer corrupt.** The native 7z writer produced files that every 7-Zip reader rejected with `Headers Error`. Three faults combined: the packed data was an XZ-container stream placed behind an LZMA1 coder, the coder carried no LZMA property bytes, and the 7z variable-length integer encoder was wrong for any value ≥ 128 (so any archive larger than ~127 bytes broke). The writer now emits a single **solid raw-LZMA stream** with the correct 5-byte coder properties and a corrected number encoder, stores paths with forward slashes, and records a per-file CRC. Archives now open and extract in 7-Zip / p7zip, and the solid layout compresses noticeably better than before. Compression still runs purely through the native `@napi-rs/lzma` dependency — no external binaries. Fixes [issue #81](https://github.com/maugenst/zip-a-folder/issues/81) reported by [@vitaly-t](https://github.com/vitaly-t).
 - **`zip()`, `tar()` and `sevenZip()` now resolve with `{ count, size }`** — the number of regular files written to the archive and the archive's size in bytes — instead of `void`. The size is measured from the bytes actually written, so it is correct even when writing to a `customWriteStream` (where there is no target path to `stat`). Existing callers that ignore the return value are unaffected. Fixes [issue #80](https://github.com/maugenst/zip-a-folder/issues/80) requested by [@vitaly-t](https://github.com/vitaly-t).
 - **CLI summary reflects the real archive.** The `zip-a-folder` CLI now takes the compressed size and the written-file count straight from the archive result, so the completion summary reports exactly what was archived (honouring `--exclude` and glob matching) instead of re-walking the source.
 - **TAR keeps paths longer than 100 bytes.** The ustar `name` field holds only 100 bytes, so `tar()` silently truncated longer paths — and two files sharing their first 100 bytes (common under `node_modules`, e.g. `…/TextInputField.module.js` and `…/TextInputField.module.css`) collapsed to the same name, losing one on extraction. `NativeTar` now emits a PAX extended header carrying the full path before any over-length file or directory entry, which GNU tar, bsdtar, busybox, Python's `tarfile`, node-tar and 7-Zip all read. Via [PR #82](https://github.com/maugenst/zip-a-folder/pull/82) by [@jayhemnani9910](https://github.com/jayhemnani9910).
+- **7z `compressionLevel` now takes precedence over the `compression` preset.** When both options were set, the `compression` preset (`'high'`/`'medium'`/`'uncompressed'`) silently overrode an explicit numeric `compressionLevel` (1-9), so bumping the level appeared to do nothing. The numeric level is the more specific control and now wins; the `compression` preset only applies when no `compressionLevel` is given (`'high'` → 9, `'medium'` → 5, `'uncompressed'` → 1, default 5). Raised in [issue #83](https://github.com/maugenst/zip-a-folder/issues/83) by [@vitaly-t](https://github.com/vitaly-t).
+- **7z AES-256 password encryption.** `sevenZip()` accepts a new `password` option that encrypts the archive data with the 7z `7zAES` coder (AES-256-CBC, key derived via 7-Zip's SHA-256 KDF), decryptable by 7-Zip / p7zip with the same password and rejected with a wrong one. Filenames and metadata stay readable, matching `7z a -p<password>` without `-mhe`. Implemented with Node's built-in `crypto` — no new dependency. Requested in [issue #83](https://github.com/maugenst/zip-a-folder/issues/83) by [@vitaly-t](https://github.com/vitaly-t).
+- **ZIP AES-256 password encryption.** `zip()` accepts the same `password` option, encrypting file contents with WinZip AES-256 (the AE-2 scheme: PBKDF2-HMAC-SHA1, AES-256-CTR, HMAC-SHA1 auth), readable by 7-Zip / WinZip and other AES-aware ZIP tools. Filenames stay readable; wrong passwords are rejected. Also uses Node's built-in `crypto`. `tar()` has no `password` option because the tar/gzip/brotli formats define no in-archive encryption. Part of [issue #83](https://github.com/maugenst/zip-a-folder/issues/83) by [@vitaly-t](https://github.com/vitaly-t).
+- **Optional legacy ZipCrypto for `zip()`.** A new `encryptionMethod: 'aes256' | 'zipcrypto'` option (default `'aes256'`) lets you opt into PKWARE ZipCrypto when you need to open the archive with a legacy reader such as the `unzip`/`ditto` bundled with macOS, Finder's Archive Utility, or Windows Explorer. ZipCrypto is **cryptographically broken** and documented as such — it exists for compatibility only, never as the default. Validated against 7-Zip, `bsdtar` and macOS `unzip`.
+- **Archiving progress callback.** `zip()`, `tar()` and `sevenZip()` accept an `onProgress: (percent: number) => void` option that reports monotonic 0–100 progress based on input bytes, always ending at 100. For ZIP/TAR it tracks per-file compression; for 7z it reflects the file-reading phase before the single native LZMA step. Inspired by the `onProgress` design in [@vitaly-t](https://github.com/vitaly-t)'s `sftp-zip-deploy`, raised in [issue #83](https://github.com/maugenst/zip-a-folder/issues/83).
+- **Local 7z benchmark.** `npm run benchmark` compares `sevenZip()` against the `7z-bin` binary for speed and compression ratio, so the native-vs-binary trade-off is measurable rather than asserted. See [7z Performance vs 7-Zip](#7z-performance-vs-7-zip).
